@@ -1,0 +1,35 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kertical-editor-role
+  labels:
+    {{- include "kertical-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - networking.kertical.com
+    resources:
+      - externalproxies
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kertical-viewer-role
+  labels:
+    {{- include "kertical-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - networking.kertical.com
+    resources:
+      - externalproxies
+    verbs:
+      - get
+      - list
+      - watch

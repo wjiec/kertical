@@ -1,0 +1,14 @@
+- source:
+    kind: Service
+    name: webhook-service
+    fieldPath: .metadata.name
+  targets:
+    - select:
+        kind: Job
+        name: gencert
+      fieldPaths:
+        - .spec.template.spec.containers.0.args.0
+      options:
+        delimiter: /
+        index: 0
+        create: true

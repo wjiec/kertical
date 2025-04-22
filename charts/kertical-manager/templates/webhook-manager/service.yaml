@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "kertical-manager.webhook.service.name" . }}
+  labels:
+    {{- include "kertical-manager.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    {{- include "kertical-manager.webhook.selectorLabels" . | nindent 4 }}

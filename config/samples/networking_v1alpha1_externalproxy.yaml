@@ -1,0 +1,44 @@
+apiVersion: networking.kertical.com/v1alpha1
+kind: ExternalProxy
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: externalproxy-sample-1
+spec:
+  backends:
+    - addresses:
+        - ip: 172.16.1.1
+        - ip: fc00::f090:27ff:fee2:420a
+      ports:
+        - name: http
+          port: 80
+        - name: websocket
+          port: 8081
+    - addresses:
+        - ip: 172.16.1.2
+      ports:
+        - name: websocket
+          port: 8080
+---
+apiVersion: networking.kertical.com/v1alpha1
+kind: ExternalProxy
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: externalproxy-sample-2
+spec:
+  backends:
+    - addresses:
+        - ip: 172.16.1.1
+      ports:
+        - name: http
+          port: 80
+  service:
+    metadata:
+      name: foobar
+  ingress:
+    rules:
+      - host: externalproxy-sample2.kertical.com
+      - host: externalproxy-sample3.kertical.com

@@ -1,0 +1,100 @@
+{{- $imagePullSecrets := default .Values.global.imagePullSecrets .Values.controller.webhook.image.pullSecrets }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kertical-manager.fullname" . }}-webhook
+  labels:
+    {{- include "kertical-manager.webhook.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.webhook.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kertical-manager.webhook.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kertical-manager.webhook.labels" . | nindent 8 }}
+        {{- with .Values.controller.webhook.pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.controller.webhook.pod.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8}}
+      {{- end }}
+    spec:
+      {{- with $imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{ with .Values.controller.webhook.pod.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{ end }}
+      containers:
+        - name: manager
+          {{- with .Values.controller.webhook.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "kertical-manager.webhook.image" . }}
+          args:
+            - --health-probe-bind-address=:8081
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WEBHOOK_CERT_DIR
+              value: /tmp/kertical-webhook-certs
+          imagePullPolicy: {{ .Values.controller.webhook.image.pullPolicy }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          ports:
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/kertical-webhook-certs
+            {{- if .Values.controller.metrics.secure }}
+            - name: metrics-cert
+              mountPath: /tmp/kertical-metrics-certs
+            {{- end }}
+          {{- with .Values.controller.webhook.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "kertical-manager.webhook.service-certs.name" . }}
+        {{- if .Values.controller.metrics.secure }}
+        - name: metrics-cert
+          secret:
+            secretName: {{ include "kertical-manager.webhook.metrics-certs.name" . }}
+        {{- end }}
+      serviceAccountName: {{ .Values.controller.webhook.serviceAccount.name }}
+      terminationGracePeriodSeconds: {{ .Values.controller.webhook.terminationGracePeriodSeconds }}
+      {{- with .Values.controller.webhook.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.webhook.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.webhook.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

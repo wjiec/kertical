@@ -1,0 +1,152 @@
+# Default values for kertical-manager.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+# Global parameters
+global:
+  imageRegistry: "docker.io"
+  imagePullSecrets: []
+
+controller:
+  metrics:
+    secure: false
+  manager:
+    replicas: 1
+    # Sets the container image
+    #   https://kubernetes.io/docs/concepts/containers/images/
+    image:
+      repository: wjiec/kertical-manager
+      # This sets the pull policy for images.
+      pullPolicy: IfNotPresent
+      # Overrides the image tag whose default is the chart appVersion.
+      tag: ""
+      # This is for the secrets for pulling an image from a private repository
+      #   https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+      pullSecrets: []
+    pod:
+      # Setting Kubernetes Annotations to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+      annotations: {}
+      # Setting Kubernetes Labels to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+      labels: {}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+    terminationGracePeriodSeconds: 10
+    nodeSelector: {}
+    tolerations: []
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/arch
+                  operator: In
+                  values:
+                    - amd64
+                    - arm64
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                    - linux
+    serviceAccount:
+      name: kertical-controller-manager
+      annotations: {}
+
+  webhook:
+    replicas: 1
+    # Sets the container image
+    #   https://kubernetes.io/docs/concepts/containers/images/
+    image:
+      repository: wjiec/kertical-webhook
+      # This sets the pull policy for images.
+      pullPolicy: IfNotPresent
+      # Overrides the image tag whose default is the chart appVersion.
+      tag: ""
+      # This is for the secrets for pulling an image from a private repository
+      #   https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+      pullSecrets: []
+    pod:
+      # Setting Kubernetes Annotations to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+      annotations: {}
+      # Setting Kubernetes Labels to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+      labels: {}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+    terminationGracePeriodSeconds: 10
+    nodeSelector: {}
+    tolerations: []
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/arch
+                  operator: In
+                  values:
+                    - amd64
+                    - arm64
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                    - linux
+    serviceAccount:
+      name: kertical-webhook-manager
+      annotations: {}
+
+gencert:
+  image:
+    repository: wjiec/kertical-gencert
+    # This sets the pull policy for images.
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+    # This is for the secrets for pulling an image from a private repository
+    #   https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+    pullSecrets: []
+  resources: {}
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop:
+        - "ALL"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  serviceAccount:
+    name: kertical-admission-init

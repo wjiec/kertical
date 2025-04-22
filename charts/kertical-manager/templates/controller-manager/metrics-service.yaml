@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "kertical-manager.controller.metrics-service.name" . }}
+  labels:
+    {{- include "kertical-manager.controller.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    {{- include "kertical-manager.controller.selectorLabels" . | nindent 4 }}

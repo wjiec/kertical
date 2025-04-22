@@ -1,0 +1,500 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: externalproxies.networking.kertical.com
+spec:
+  group: networking.kertical.com
+  names:
+    categories:
+    - kertical
+    kind: ExternalProxy
+    listKind: ExternalProxyList
+    plural: externalproxies
+    shortNames:
+    - kep
+    singular: externalproxy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.serviceName
+      name: Service
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ExternalProxy is the Schema for the externalproxies API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ExternalProxySpec defines the desired state of ExternalProxy
+            properties:
+              backends:
+                description: Backend defines the endpoint to which the traffic will
+                  be forwarded to.
+                items:
+                  description: ExternalProxyBackend describes the backend address
+                    of the given proxy as well as the port.
+                  properties:
+                    addresses:
+                      description: |-
+                        Addresses which offer the related ports that are marked as ready. These endpoints
+                        should be considered safe for load balancers and clients to utilize.
+                      items:
+                        description: ExternalProxyBackendAddress describes single
+                          IP address.
+                        properties:
+                          ip:
+                            description: |-
+                              The IP of this endpoint.
+                              May not be loopback (127.0.0.0/8 or ::1), link-local (169.254.0.0/16 or fe80::/10),
+                              or link-local multicast (224.0.0.0/24 or ff02::/16).
+                            type: string
+                        required:
+                        - ip
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    ports:
+                      description: The available port number on the related addresses.
+                      items:
+                        description: EndpointPort represents a Port used by an EndpointSlice
+                        properties:
+                          appProtocol:
+                            description: |-
+                              The application protocol for this port.
+                              This is used as a hint for implementations to offer richer behavior for protocols that they understand.
+                              This field follows standard Kubernetes label syntax.
+                              Valid values are either:
+
+                              * Un-prefixed protocol names - reserved for IANA standard service names (as per
+                              RFC-6335 and https://www.iana.org/assignments/service-names).
+
+                              * Kubernetes-defined prefixed names:
+                                * 'kubernetes.io/h2c' - HTTP/2 prior knowledge over cleartext as described in https://www.rfc-editor.org/rfc/rfc9113.html#name-starting-http-2-with-prior-
+                                * 'kubernetes.io/ws'  - WebSocket over cleartext as described in https://www.rfc-editor.org/rfc/rfc6455
+                                * 'kubernetes.io/wss' - WebSocket over TLS as described in https://www.rfc-editor.org/rfc/rfc6455
+
+                              * Other protocols should use implementation-defined prefixed names such as
+                              mycompany.com/my-custom-protocol.
+                            type: string
+                          name:
+                            description: |-
+                              name represents the name of this port. All ports in an EndpointSlice must have a unique name.
+                              If the EndpointSlice is derived from a Kubernetes service, this corresponds to the Service.ports[].name.
+                              Name must either be an empty string or pass DNS_LABEL validation:
+                              * must be no more than 63 characters long.
+                              * must consist of lower case alphanumeric characters or '-'.
+                              * must start and end with an alphanumeric character.
+                              Default is empty string.
+                            type: string
+                          port:
+                            description: |-
+                              port represents the port number of the endpoint.
+                              If this is not specified, ports are not restricted and must be
+                              interpreted in the context of the specific consumer.
+                            format: int32
+                            type: integer
+                          protocol:
+                            description: |-
+                              protocol represents the IP protocol for this port.
+                              Must be UDP, TCP, or SCTP.
+                              Default is TCP.
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      type: array
+                      x-kubernetes-list-type: atomic
+                  required:
+                  - addresses
+                  - ports
+                  type: object
+                minItems: 1
+                type: array
+              ingress:
+                description: |-
+                  Optional Ingress configuration that declares how the proxied service
+                  will be accessed externally via HTTP(s).
+                properties:
+                  defaultBackend:
+                    description: |-
+                      defaultBackend is the backend that should handle requests that don't
+                      match any rule. If Rules are not specified, DefaultBackend must be specified.
+                      If DefaultBackend is not set, the handling of requests that do not match any
+                      of the rules will be up to the Ingress controller.
+                    properties:
+                      port:
+                        description: port of the referenced service. A port name or
+                          port number is required.
+                        properties:
+                          name:
+                            description: |-
+                              name is the name of the port on the Service.
+                              This is a mutually exclusive setting with "Number".
+                            type: string
+                          number:
+                            description: |-
+                              number is the numerical port number (e.g. 80) on the Service.
+                              This is a mutually exclusive setting with "Name".
+                            format: int32
+                            type: integer
+                        type: object
+                    type: object
+                  ingressClassName:
+                    description: |-
+                      ingressClassName is the name of an IngressClass cluster resource. Ingress
+                      controller implementations use this field to know whether they should be
+                      serving this Ingress resource, by a transitive connection
+                      (controller -> IngressClass -> Ingress resource).
+                    type: string
+                  metadata:
+                    description: |-
+                      Only metadata such as name, label and annotations are allowed to be configured, and
+                      these will be copied to the created Ingress. No other fields are allowed and will be
+                      rejected during validation.
+
+                      If you do not specify a name, the name of the ExternalProxy will be used as the
+                      name of the Ingress by default.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                        type: object
+                      name:
+                        description: |-
+                          Name must be unique within a namespace. Is required when creating resources, although
+                          some resources may allow a client to request the generation of an appropriate name
+                          automatically. Name is primarily intended for creation idempotence and configuration
+                          definition.
+                          Cannot be updated.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names
+                        type: string
+                    type: object
+                  rules:
+                    description: |-
+                      rules is a list of host rules used to configure the Ingress. If unspecified,
+                      or no rule matches, all traffic is sent to the default backend.
+                    items:
+                      description: |-
+                        ExternalProxyIngressRule represents the rules mapping the paths under a specified
+                        host to the related backend proxy services. Incoming requests are first evaluated
+                        for a host match, then routed to the backend associated with the matching
+                        ExternalProxyIngressHttpRuleValue.
+                      properties:
+                        host:
+                          description: |-
+                            host is the fully qualified domain name of a network host, as defined by RFC 3986.
+
+                            Incoming requests are matched against the host before the IngressRuleValue. If the
+                            host is unspecified, the Ingress routes all traffic based on the specified
+                            ExternalProxyIngressHttpRuleValue.
+                          type: string
+                        http:
+                          description: |-
+                            http represents a rule to route requests for this ExternalProxyIngressRule.
+
+                            If unspecified, the rule defaults to a http catch-all. Whether that sends
+                            just traffic matching the host to the default backend or all traffic to the
+                            default backend, is left to the controller fulfilling the Ingress.
+                          properties:
+                            paths:
+                              description: paths is a collection of paths that map
+                                requests to backends.
+                              items:
+                                description: |-
+                                  ExternalProxyIngressHttpPath associates a path with proxied service. Incoming urls
+                                  matching the path are forwarded to the corresponding backend.
+                                properties:
+                                  backend:
+                                    description: |-
+                                      backend defines the referenced service port to which the traffic
+                                      will be forwarded to.
+
+                                      This field can be ignored if only one port is configured in the service.
+                                    properties:
+                                      port:
+                                        description: port of the referenced service.
+                                          A port name or port number is required.
+                                        properties:
+                                          name:
+                                            description: |-
+                                              name is the name of the port on the Service.
+                                              This is a mutually exclusive setting with "Number".
+                                            type: string
+                                          number:
+                                            description: |-
+                                              number is the numerical port number (e.g. 80) on the Service.
+                                              This is a mutually exclusive setting with "Name".
+                                            format: int32
+                                            type: integer
+                                        type: object
+                                    type: object
+                                  path:
+                                    description: |-
+                                      path is matched against the path of an incoming request. Currently, it can
+                                      contain characters disallowed from the conventional "path" part of a URL
+                                      as defined by RFC 3986. Paths must begin with a '/' and must be present
+                                      when using PathType with value "Exact" or "Prefix".
+                                    type: string
+                                  pathType:
+                                    description: |-
+                                      pathType determines the interpretation of the path matching. Valid
+                                      options are Exact, Prefix and ImplementationSpecific.
+                                    enum:
+                                    - Exact
+                                    - Prefix
+                                    - ImplementationSpecific
+                                    type: string
+                                required:
+                                - pathType
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - paths
+                          type: object
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  tls:
+                    description: |-
+                      tls represents the TLS configuration. Currently, the Ingress only supports a
+                      single TLS port, 443. If multiple members of this list specify different hosts,
+                      they will be multiplexed on the same port according to the hostname specified
+                      through the SNI TLS extension, if the ingress controller fulfilling the
+                      ingress supports SNI.
+                    items:
+                      description: IngressTLS describes the transport layer security
+                        associated with an ingress.
+                      properties:
+                        hosts:
+                          description: |-
+                            hosts is a list of hosts included in the TLS certificate. The values in
+                            this list must match the name/s used in the tlsSecret. Defaults to the
+                            wildcard host setting for the loadbalancer controller fulfilling this
+                            Ingress, if left unspecified.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        secretName:
+                          description: |-
+                            secretName is the name of the secret used to terminate TLS traffic on
+                            port 443. Field is left optional to allow TLS routing based on SNI
+                            hostname alone. If the SNI host in a listener conflicts with the "Host"
+                            header field used by an IngressRule, the SNI host is used for termination
+                            and value of the "Host" header is used for routing.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              service:
+                description: |-
+                  The service is a generalized description of the destination endpoint of the
+                  traffic, containing the ingress port number of the traffic and the corresponding
+                  backend port number or name.
+
+                  If the content of the service is not defined, a Service of type ClusterIP is automatically
+                  generated based on the configuration in Backends.
+
+                  If Service is configured manually, the names of all defined ports must be unique and match
+                  the port names in Backends, otherwise forwarding will not be possible. The name can be omitted
+                  if there is only one port.
+
+                  If the port information for the Service is not configured and there is a configuration
+                  in the Backend with the same name but a different port number, the controller uses the
+                  port number used in the first occurrence of the port name as the port number used in the Service.
+
+                  In the case of multiple ports in a Service, kube-proxy builds forwarding rules based only on
+                  all endpoints that have the same name as the port in the Service.
+
+                  You can configure only the name, metadata, and type of the Service. Leaving the port information
+                  blank will be automatically generated by the controller.
+                properties:
+                  metadata:
+                    description: |-
+                      Only metadata such as name, label and annotations are allowed to be configured, and
+                      these will be copied to the created Service. No other fields are allowed and will be
+                      rejected during validation.
+
+                      If you do not specify a name, the name of the ExternalProxy will be used as the
+                      name of the Service by default.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                        type: object
+                      name:
+                        description: |-
+                          Name must be unique within a namespace. Is required when creating resources, although
+                          some resources may allow a client to request the generation of an appropriate name
+                          automatically. Name is primarily intended for creation idempotence and configuration
+                          definition.
+                          Cannot be updated.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names
+                        type: string
+                    type: object
+                  ports:
+                    description: The list of ports that are exposed by this service.
+                    items:
+                      description: ServicePort contains information on service's port.
+                      properties:
+                        appProtocol:
+                          description: |-
+                            The application protocol for this port.
+                            This is used as a hint for implementations to offer richer behavior for protocols that they understand.
+                            This field follows standard Kubernetes label syntax.
+                            Valid values are either:
+
+                            * Un-prefixed protocol names - reserved for IANA standard service names (as per
+                            RFC-6335 and https://www.iana.org/assignments/service-names).
+
+                            * Kubernetes-defined prefixed names:
+                              * 'kubernetes.io/h2c' - HTTP/2 prior knowledge over cleartext as described in https://www.rfc-editor.org/rfc/rfc9113.html#name-starting-http-2-with-prior-
+                              * 'kubernetes.io/ws'  - WebSocket over cleartext as described in https://www.rfc-editor.org/rfc/rfc6455
+                              * 'kubernetes.io/wss' - WebSocket over TLS as described in https://www.rfc-editor.org/rfc/rfc6455
+
+                            * Other protocols should use implementation-defined prefixed names such as
+                            mycompany.com/my-custom-protocol.
+                          type: string
+                        name:
+                          description: |-
+                            The name of this port within the service. This must be a DNS_LABEL.
+                            All ports within a ServiceSpec must have unique names. When considering
+                            the endpoints for a Service, this must match the 'name' field in the
+                            EndpointPort.
+                            Optional if only one ServicePort is defined on this service.
+                          type: string
+                        nodePort:
+                          description: |-
+                            The port on each node on which this service is exposed when type is
+                            NodePort or LoadBalancer.  Usually assigned by the system. If a value is
+                            specified, in-range, and not in use it will be used, otherwise the
+                            operation will fail.  If not specified, a port will be allocated if this
+                            Service requires one.  If this field is specified when creating a
+                            Service which does not need it, creation will fail. This field will be
+                            wiped when updating a Service to no longer need it (e.g. changing type
+                            from NodePort to ClusterIP).
+                            More info: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
+                          format: int32
+                          type: integer
+                        port:
+                          description: The port that will be exposed by this service.
+                          format: int32
+                          type: integer
+                        protocol:
+                          default: TCP
+                          description: |-
+                            The IP protocol for this port. Supports "TCP", "UDP", and "SCTP".
+                            Default is TCP.
+                          type: string
+                        targetPort:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: |-
+                            Number or name of the port to access on the pods targeted by the service.
+                            Number must be in the range 1 to 65535. Name must be an IANA_SVC_NAME.
+                            If this is a string, it will be looked up as a named port in the
+                            target Pod's container ports. If this is not specified, the value
+                            of the 'port' field is used (an identity map).
+                            This field is ignored for services with clusterIP=None, and should be
+                            omitted or set equal to the 'port' field.
+                            More info: https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service
+                          x-kubernetes-int-or-string: true
+                      required:
+                      - port
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - port
+                    - protocol
+                    x-kubernetes-list-type: map
+                  type:
+                    description: |-
+                      type determines how the Service is exposed. Defaults to ClusterIP. Valid
+                      options are ExternalName, ClusterIP, NodePort, and LoadBalancer.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                type: object
+            required:
+            - backends
+            type: object
+          status:
+            description: ExternalProxyStatus defines the observed state of ExternalProxy
+            properties:
+              observedGeneration:
+                description: ObservedGeneration is the last generation the controller
+                  observed.
+                format: int64
+                type: integer
+              ready:
+                description: |-
+                  Ready Indicates whether the current ExternalProxy, including its subordinate
+                  Services, and Ingress resources are ready.
+                type: boolean
+              serviceName:
+                description: ServiceName is the name of the Service object that was
+                  finalized for use.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

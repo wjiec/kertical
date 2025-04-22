@@ -1,0 +1,18 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: webhook-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+        - name: webhook
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/kertical-webhook-certs
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: webhook-server-certs
+---

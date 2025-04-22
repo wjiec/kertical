@@ -1,0 +1,25 @@
+kind: ValidatingWebhookConfiguration
+apiVersion: admissionregistration.k8s.io/v1
+metadata:
+  name: kertical-validating-webhook
+webhooks:
+  - name: validating-externalproxy-v1alpha1.kertical.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "kertical-manager.webhook.service.name" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-networking-kertical-com-v1alpha1-externalproxy
+    failurePolicy: Fail
+    rules:
+      - apiGroups:
+          - networking.kertical.com
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - externalproxies
+    sideEffects: None

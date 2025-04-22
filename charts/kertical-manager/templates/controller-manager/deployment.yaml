@@ -1,0 +1,91 @@
+{{- $imagePullSecrets := default .Values.global.imagePullSecrets .Values.controller.manager.image.pullSecrets -}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kertical-manager.fullname" . }}
+  labels:
+    {{- include "kertical-manager.controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.manager.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kertical-manager.controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kertical-manager.controller.labels" . | nindent 8 }}
+        {{- with .Values.controller.manager.pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.controller.manager.pod.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8}}
+      {{- end }}
+    spec:
+      {{- with $imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{ with .Values.controller.manager.pod.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{ end }}
+      containers:
+        - name: manager
+          {{- with .Values.controller.manager.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "kertical-manager.controller.image" . }}
+          args:
+            - --leader-elect
+            - --metrics-bind-address=:8443
+            - --health-probe-bind-address=:8081
+            - --metrics-secure={{ .Values.controller.metrics.secure }}
+          imagePullPolicy: {{ .Values.controller.manager.image.pullPolicy }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          ports:
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+          {{- if .Values.controller.metrics.secure }}
+          volumeMounts:
+            - name: metrics-certs
+              mountPath: /tmp/kertical-metrics-certs
+          {{- end }}
+          {{- with .Values.controller.manager.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.controller.metrics.secure }}
+      volumes:
+        - name: metrics-certs
+          secret:
+            secretName: {{ include "kertical-manager.controller.metrics-certs.name" . }}
+      {{- end }}
+      serviceAccountName: {{ .Values.controller.manager.serviceAccount.name }}
+      terminationGracePeriodSeconds: {{ .Values.controller.manager.terminationGracePeriodSeconds }}
+      {{- with .Values.controller.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.manager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.manager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

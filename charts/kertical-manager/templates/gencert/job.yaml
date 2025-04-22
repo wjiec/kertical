@@ -1,0 +1,54 @@
+{{- $imagePullSecrets := default .Values.global.imagePullSecrets .Values.gencert.image.pullSecrets }}
+
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: {{ include "kertical-manager.gencert.name" . }}
+  labels:
+    {{- include "kertical-manager.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kertical-manager.gencert.annotations" . | nindent 4 }}
+    helm.sh/hook-weight: "5"
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "kertical-manager.labels" . | nindent 8 }}
+    spec:
+      {{- with $imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gencert
+          image: {{ include "kertical-manager.gencert.image" . }}
+          args:
+            - {{ include "kertical-manager.webhook.service.name" . }}/{{ include "kertical-manager.webhook.service-certs.name" . }}
+            {{- if .Values.controller.metrics.secure }}
+            - {{ include "kertical-manager.controller.metrics-service.name" . }}/{{ include "kertical-manager.controller.metrics-certs.name" . }}
+            - {{ include "kertical-manager.webhook.metrics-service.name" . }}/{{ include "kertical-manager.webhook.metrics-certs.name" . }}
+            {{- end }}
+          imagePullPolicy: {{ .Values.gencert.image.pullPolicy }}
+          {{- with .Values.gencert.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.gencert.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.gencert.serviceAccount.name }}
+      {{- with .Values.gencert.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gencert.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gencert.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
