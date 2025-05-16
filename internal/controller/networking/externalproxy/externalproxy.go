@@ -53,8 +53,8 @@ func NewService(instance *networkingv1alpha1.ExternalProxy) *corev1.Service {
 	}
 
 	// copy labels and annotations from the ExternalProxy specification to the service's metadata.
-	maps.Copy(service.Labels, instance.Spec.Service.Labels)
-	maps.Copy(service.Annotations, instance.Spec.Service.Annotations)
+	service.Labels = maps.Clone(instance.Spec.Service.Labels)
+	service.Annotations = maps.Clone(instance.Spec.Service.Annotations)
 
 	return InjectExternalProxyRevision(instance, service)
 }
@@ -137,8 +137,8 @@ func NewIngress(instance *networkingv1alpha1.ExternalProxy) *networkingv1.Ingres
 	}
 
 	// copy labels and annotations from the ExternalProxy specification to the ingress's metadata.
-	maps.Copy(ingress.Labels, instance.Spec.Ingress.Labels)
-	maps.Copy(ingress.Annotations, instance.Spec.Ingress.Annotations)
+	ingress.Labels = maps.Clone(instance.Spec.Ingress.Labels)
+	ingress.Annotations = maps.Clone(instance.Spec.Ingress.Annotations)
 
 	toIngressBackend := func(backend *networkingv1alpha1.ExternalProxyIngressBackend) *networkingv1.IngressBackend {
 		return &networkingv1.IngressBackend{
