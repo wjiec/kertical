@@ -46,14 +46,14 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/controller-manager/Dockerfile
+          file: ./build/docker/controller-manager/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   build-webhook:
-    name: Builds the Controller image
+    name: Builds the Webhook image
     runs-on: ubuntu-latest
 
     steps:
@@ -91,14 +91,14 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/webhook-manager/Dockerfile
+          file: ./build/docker/webhook-manager/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   build-gencert:
-    name: Builds the Controller image
+    name: Builds the Gencert image
     runs-on: ubuntu-latest
 
     steps:
@@ -136,7 +136,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/gencert/Dockerfile
+          file: ./build/docker/gencert/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
