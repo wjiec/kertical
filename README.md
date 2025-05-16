@@ -1,7 +1,7 @@
 # kertical
 [![Go Report Card](https://goreportcard.com/badge/github.com/wjiec/kertical)](https://goreportcard.com/report/github.com/wjiec/kertical)
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
-[![Go Tests](https://github.com/wjiec/kertical/actions/workflows/test.yaml/badge.svg)](https://github.com/wjiec/kertical/actions/workflows/test.yaml)
+[![Go Tests](https://github.com/wjiec/kertical/actions/workflows/test.yml/badge.svg)](https://github.com/wjiec/kertical/actions/workflows/test.yml)
 
 Managing and integrating your Homelab on Kubernetes.
 
