@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/networking.kertical.com_externalproxies.yaml
+- bases/networking.kertical.com_portforwardings.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches: []
