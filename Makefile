@@ -4,6 +4,7 @@ IMAGE_REPOSITORY_BASE ?= wjiec
 CONTROLLER_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-manager:$(IMAGE_VERSION)
 WEBHOOK_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-webhook:$(IMAGE_VERSION)
 GENCERT_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-gencert:$(IMAGE_VERSION)
+FORWARDING_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-forwarding:$(IMAGE_VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -87,6 +88,7 @@ _reset-image:
 	cd config/controller-manager && $(KUSTOMIZE) edit set image controller-manager=$(CONTROLLER_MANAGER_IMG)
 	cd config/webhook-manager && $(KUSTOMIZE) edit set image webhook-manager=$(WEBHOOK_MANAGER_IMG)
 	cd config/gencert && $(KUSTOMIZE) edit set image gencert=$(GENCERT_IMG)
+	cd config/forwarding && $(KUSTOMIZE) edit set image forwarding=$(FORWARDING_IMG)
 
 ##@ Build
 
@@ -102,6 +104,11 @@ build-gencert: fmt vet ## Build gencert binary.
 build-webhook-manager: manifests generate fmt vet ## Build webhook-manager binary.
 	go build -o bin/webhook-manager cmd/webhook-manager/main.go
 
+.PHONY: build-forwarding
+build-forwarding: manifests generate fmt vet ## Build forwarding binary.
+	go build -o bin/forwarding cmd/forwarding/main.go
+
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	ENABLE_WEBHOOKS=false go run ./cmd/controller-manager/main.go
@@ -114,12 +121,14 @@ docker-build: ## Build docker image with the controller-manager.
 	$(CONTAINER_TOOL) build -t $(CONTROLLER_MANAGER_IMG) -f build/docker/controller-manager/Dockerfile .
 	$(CONTAINER_TOOL) build -t $(WEBHOOK_MANAGER_IMG) -f build/docker/webhook-manager/Dockerfile .
 	$(CONTAINER_TOOL) build -t $(GENCERT_IMG) -f build/docker/gencert/Dockerfile .
+	$(CONTAINER_TOOL) build -t $(FORWARDING_IMG) -f build/docker/forwarding/Dockerfile .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push $(CONTROLLER_MANAGER_IMG)
 	$(CONTAINER_TOOL) push $(WEBHOOK_MANAGER_IMG)
 	$(CONTAINER_TOOL) push $(GENCERT_IMG)
+	$(CONTAINER_TOOL) push $(FORWARDING_IMG)
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -135,6 +144,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(CONTROLLER_MANAGER_IMG) -f build/docker/controller-manager/Dockerfile .
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(WEBHOOK_MANAGER_IMG) -f build/docker/webhook-manager/Dockerfile .
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(GENCERT_IMG) -f build/docker/gencert/Dockerfile .
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(FORWARDING_IMG) -f build/docker/forwarding/Dockerfile .
 	- $(CONTAINER_TOOL) buildx rm kertical-builder
 
 .PHONY: build-installer

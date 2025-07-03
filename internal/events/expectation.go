@@ -100,7 +100,9 @@ func (g *ownedByExpectation[T]) Update(ctx context.Context, evt UpdateEvent, wq 
 func (g *ownedByExpectation[T]) Delete(ctx context.Context, evt DeleteEvent, wq RateLimiting) {
 	logger := log.FromContext(ctx)
 	if _, ok := evt.Object.(T); !ok {
-		logger.Error(nil, "skipping deletion event", "deleteStateUnknown", evt.DeleteStateUnknown, "object", klog.KObj(evt.Object))
+		logger.Error(nil, "skipping deletion event",
+			"deleteStateUnknown", evt.DeleteStateUnknown,
+			"object", klog.KObj(evt.Object))
 		return
 	}
 

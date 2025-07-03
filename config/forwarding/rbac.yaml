@@ -1,0 +1,12 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/component: forwarding
+    app.kubernetes.io/part-of: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: forwarding
+  namespace: system
+---
+# TODO
