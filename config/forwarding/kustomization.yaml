@@ -1,11 +1,12 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+namespace: kertical-system
+namePrefix: kertical-
 
 resources:
-- forwarding.yaml
-- rbac.yaml
-
+- standalone/
+- bases/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 images:
 - name: forwarding
   newName: wjiec/kertical-forwarding
-  newTag: v0.0.1
+  newTag: v0.1.1
