@@ -12,15 +12,15 @@ metadata:
 spec:
   selector:
     matchLabels:
-      control-plane: controller-manager
+      app.kubernetes.io/name: kertical
       app.kubernetes.io/component: forwarding
       app.kubernetes.io/part-of: kertical
   template:
     metadata:
       labels:
-        control-plane: controller-manager
-        app.kubernetes.io/component: forwarding
         app.kubernetes.io/name: kertical
+        app.kubernetes.io/component: forwarding
+        app.kubernetes.io/part-of: kertical
     spec:
       affinity:
         nodeAffinity:
@@ -37,22 +37,30 @@ spec:
                     values:
                       - linux
       securityContext:
-        # Projects are configured by default to adhere to the "restricted" Pod Security Standards.
-        # This ensures that deployments meet the highest security requirements for Kubernetes.
-        # For more details, see: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: sysctl
+          image: busybox
+          command:
+            - /bin/sh
+            - -c
+            - sysctl -w net.ipv4.ip_forward=1
+          securityContext:
+            privileged: true
       containers:
         - name: forwarding
           image: forwarding:latest
           args:
             - --health-probe-bind-address=:8081
           securityContext:
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - "ALL"
+              add:
+                - NET_ADMIN
           livenessProbe:
             httpGet:
               path: /healthz

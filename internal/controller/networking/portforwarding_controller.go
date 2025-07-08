@@ -61,10 +61,9 @@ func newPortForwardingReconciler(c client.Client, scheme *runtime.Scheme) *PortF
 	}
 }
 
-// +kubebuilder:rbac:groups=networking.kertical.com,resources=portforwardings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.kertical.com,resources=portforwardings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=networking.kertical.com,resources=portforwardings/finalizers,verbs=update
-// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// We don't need to declare the rbac permissions needed for the current control
+// here, as this controller will be deployed separately and is not part of the
+// controller-manager.
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
