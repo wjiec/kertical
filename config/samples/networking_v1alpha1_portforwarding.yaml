@@ -1,0 +1,13 @@
+kind: PortForwarding
+apiVersion: networking.kertical.com/v1alpha1
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: portforwarding-sample-1
+spec:
+  serviceRef:
+    name: kubernetes
+  ports:
+    - target: https
+      hostPort: 51443

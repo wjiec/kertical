@@ -28,6 +28,7 @@ import (
 	kubescheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	networkingv1alpha1 "github.com/wjiec/kertical/api/networking/v1alpha1"
 )
@@ -40,6 +41,7 @@ type Bootstrap struct {
 	ctrlOptions  ctrl.Options
 	beforeCreate []func(context.Context) error
 	beforeStart  []func(context.Context, ctrl.Manager) error
+	beforeStop   []func(context.Context, ctrl.Manager) error
 }
 
 // New initializes and returns a new Bootstrap instance with a runtime scheme and logger.
@@ -64,6 +66,11 @@ func (b *Bootstrap) addBeforeCreate(hook func(context.Context) error) {
 // addBeforeStart adds a hook function to be executed before the manager starts.
 func (b *Bootstrap) addBeforeStart(hook func(context.Context, ctrl.Manager) error) {
 	b.beforeStart = append(b.beforeStart, hook)
+}
+
+// addBeforeStart adds a hook function to be executed before the manager stops.
+func (b *Bootstrap) addBeforeStop(hook func(context.Context, ctrl.Manager) error) {
+	b.beforeStop = append(b.beforeStop, hook)
 }
 
 // RunForever sets up the manager and runs it indefinitely, processing options and hooks beforehand.
@@ -98,6 +105,23 @@ func (b *Bootstrap) RunForever(ctx context.Context, options ...Option) {
 			b.setupLog.Error(err, "failed to run beforeStart hook")
 			os.Exit(1)
 		}
+	}
+
+	// Execute all hooks added to beforeStop, passing the manager to each.
+	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		<-ctx.Done()
+
+		for _, beforeStop := range b.beforeStop {
+			if err := beforeStop(ctx, mgr); err != nil {
+				b.setupLog.Error(err, "failed to run beforeStop hook")
+				return err
+			}
+		}
+		return nil
+	}))
+	if err != nil {
+		b.setupLog.Error(err, "unable to add beforeStop hooks to the manager")
+		os.Exit(1)
 	}
 
 	b.setupLog.Info("starting manager")

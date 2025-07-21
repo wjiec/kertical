@@ -1,0 +1,6 @@
+namespace: kertical-system
+namePrefix: kertical-
+
+resources:
+- bases/
+- standalone/
