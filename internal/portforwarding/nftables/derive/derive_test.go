@@ -1,3 +1,5 @@
+//go:build linux
+
 package derive_test
 
 import (

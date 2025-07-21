@@ -13,16 +13,21 @@ import (
 )
 
 func main() {
+	var stop func() error
 	bootstrap.New().RunForever(ctrl.SetupSignalHandler(),
 		bootstrap.WithSetupLogging(zap.Options{Development: true}),
 		bootstrap.WithHealthProbe(":8081"),
 		bootstrap.WithMetricsServer(false, "0", false),
-		bootstrap.WithBeforeStart(func(ctx context.Context, mgr ctrl.Manager) error {
+		bootstrap.WithBeforeStart(func(ctx context.Context, mgr ctrl.Manager) (err error) {
 			log.FromContext(ctx).Info("create and register controllers to the manager")
-			if err := networking.SetupPortForwarding(mgr); err != nil {
+			if stop, err = networking.SetupPortForwarding(mgr); err != nil {
 				return errors.Wrap(err, "unable to create or register controllers")
 			}
 			return nil
+		}),
+		bootstrap.WithBeforeStop(func(ctx context.Context, mgr ctrl.Manager) error {
+			log.FromContext(ctx).Info("stop controller manager")
+			return stop()
 		}),
 	)
 }

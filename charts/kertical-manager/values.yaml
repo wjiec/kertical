@@ -144,7 +144,7 @@ gencert:
       type: RuntimeDefault
     capabilities:
       drop:
-        - "ALL"
+        - ALL
   nodeSelector: {}
   tolerations: []
   affinity: {}

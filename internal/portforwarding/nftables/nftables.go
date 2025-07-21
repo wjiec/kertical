@@ -1,3 +1,5 @@
+//go:build linux
+
 package nftables
 
 import (
@@ -18,6 +20,7 @@ import (
 )
 
 // Available checks if the system is properly configured for port forwarding.
+//
 // It verifies that IPv4 forwarding is enabled in the kernel, which is a
 // prerequisite for packets to be forwarded between network interfaces.
 func Available() (bool, error) {

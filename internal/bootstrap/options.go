@@ -49,6 +49,13 @@ func WithBeforeStart(hook func(context.Context, ctrl.Manager) error) Option {
 	}
 }
 
+// WithBeforeStop adds a hook to be executed before the manager stops.
+func WithBeforeStop(hook func(context.Context, ctrl.Manager) error) Option {
+	return func(bootstrap *Bootstrap) {
+		bootstrap.addBeforeStop(hook)
+	}
+}
+
 // WithSetupLogging configures logging setup using the provided zap options.
 func WithSetupLogging(options zap.Options) Option {
 	return func(bootstrap *Bootstrap) {

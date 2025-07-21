@@ -2,11 +2,5 @@ namespace: kertical-system
 namePrefix: kertical-
 
 resources:
-- standalone/
 - bases/
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-images:
-- name: forwarding
-  newName: wjiec/kertical-forwarding
-  newTag: v0.1.1
+- standalone/

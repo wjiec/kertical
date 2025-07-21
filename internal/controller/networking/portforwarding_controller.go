@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -39,10 +40,14 @@ import (
 	"github.com/wjiec/kertical/internal/verbosity"
 )
 
+const (
+	PortForwardingFinalizerName = "networking.kertical.com/finalizer"
+)
+
 // SetupPortForwarding sets up the PortForwarding controller with the manager
-func SetupPortForwarding(mgr ctrl.Manager) error {
-	return newPortForwardingReconciler(mgr.GetClient(), mgr.GetScheme()).
-		SetupWithManager(mgr)
+func SetupPortForwarding(mgr ctrl.Manager) (func() error, error) {
+	r := newPortForwardingReconciler(mgr.GetClient(), mgr.GetScheme())
+	return r.CleanUp, r.SetupWithManager(mgr)
 }
 
 // PortForwardingReconciler reconciles a PortForwarding object
@@ -50,7 +55,7 @@ type PortForwardingReconciler struct {
 	client.Client
 	scheme *runtime.Scheme
 
-	forwarder portforwarding.PortForwarding
+	forwarding portforwarding.PortForwarding
 }
 
 // newPortForwardingReconciler creates a new instance of PortForwardingReconciler.
@@ -89,6 +94,42 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	logger.V(verbosity.VeryVerbose).Info("Start reconciling")
 
+	// examine DeletionTimestamp to determine if object is under deletion
+	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then let's add the finalizer and update the object. This is equivalent
+		// to registering our finalizer.
+		if !controllerutil.ContainsFinalizer(&instance, PortForwardingFinalizerName) {
+			controllerutil.AddFinalizer(&instance, PortForwardingFinalizerName)
+			if err := r.Update(ctx, &instance); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(&instance, PortForwardingFinalizerName) {
+			// our finalizer is present, so let's remove the port forwarding
+			if err := r.removePortForwarding(ctx, &instance); err != nil {
+				// if fail to remove the port forwarding here, return with error
+				// so that it can be retried.
+				return ctrl.Result{}, err
+			}
+
+			// remove our finalizer from the list and update it.
+			controllerutil.RemoveFinalizer(&instance, PortForwardingFinalizerName)
+			if err := r.Update(ctx, &instance); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.syncPortForwarding(ctx, &instance); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -96,9 +137,13 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	return nil
 }
 
+func (r *PortForwardingReconciler) removePortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
+	return nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error) {
-	if r.forwarder, err = portforwarding.Factory(kertical.ControllerName()); err != nil {
+	if r.forwarding, err = portforwarding.New(kertical.ControllerName()); err != nil {
 		return err
 	}
 
@@ -110,6 +155,10 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 			MaxConcurrentReconciles: concurrentReconciles,
 		}).
 		Complete(r)
+}
+
+func (r *PortForwardingReconciler) CleanUp() error {
+	return r.forwarding.Close()
 }
 
 // resolveReferencedPortForwarding finds all PortForwarding resources in the same namespace

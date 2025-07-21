@@ -1,5 +1,3 @@
-//go:build linux
-
 package portforwarding_test
 
 import (
@@ -10,8 +8,8 @@ import (
 	"github.com/wjiec/kertical/internal/portforwarding"
 )
 
-func TestFactory(t *testing.T) {
-	pf, err := portforwarding.Factory("foo")
+func TestNew(t *testing.T) {
+	pf, err := portforwarding.New("foo")
 	if assert.NoError(t, err) {
 		assert.NotNil(t, pf)
 	}

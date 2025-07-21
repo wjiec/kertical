@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/utils/set"
 
-	"github.com/wjiec/kertical/internal/portforwarding/nftables"
 	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
 
@@ -23,17 +22,26 @@ type PortForwarding interface {
 	Close() error
 }
 
-// Factory creates a new PortForwarding implementation with safety guards.
-func Factory(name string) (PortForwarding, error) {
-	available, err := nftables.Available()
-	if err != nil {
-		return nil, err
-	} else if !available {
-		return nil, errors.New("nftables not available")
+// New creates a new PortForwarding implementation with safety guards.
+func New(name string) (PortForwarding, error) {
+	var underlying PortForwarding
+	for _, impl := range registry {
+		available, err := impl.Available()
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to check %q is availabled", impl.Name)
+		} else if available {
+			underlying, err = impl.New(name)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create port forwarding")
+			}
+		}
+	}
+	if underlying == nil {
+		return nil, errors.Errorf("no underlying port forwarding is available")
 	}
 
 	return &guardPortForwarding{
-		underlying: nftables.NewIPv4(name), // currently only nftables are supported
+		underlying: underlying,
 		listens: map[transport.Protocol]set.Set[uint16]{
 			transport.TCP: set.New[uint16](),
 			transport.UDP: set.New[uint16](),

@@ -58,7 +58,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-                - "ALL"
+                - ALL
               add:
                 - NET_ADMIN
           livenessProbe:
