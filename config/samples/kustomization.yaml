@@ -1,4 +1,5 @@
 ## Append samples of your project ##
 resources:
 - networking_v1alpha1_externalproxy.yaml
+- networking_v1alpha1_portforwarding.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

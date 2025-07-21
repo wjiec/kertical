@@ -44,6 +44,7 @@ rules:
   - networking.kertical.com
   resources:
   - externalproxies
+  - portforwardings
   verbs:
   - create
   - delete
@@ -56,12 +57,14 @@ rules:
   - networking.kertical.com
   resources:
   - externalproxies/finalizers
+  - portforwardings/finalizers
   verbs:
   - update
 - apiGroups:
   - networking.kertical.com
   resources:
   - externalproxies/status
+  - portforwardings/status
   verbs:
   - get
   - patch
