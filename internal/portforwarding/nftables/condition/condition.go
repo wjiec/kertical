@@ -9,8 +9,7 @@ import (
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"golang.org/x/sys/unix"
-
-	"github.com/wjiec/kertical/internal/portforwarding/transport"
+	netutils "k8s.io/utils/net"
 )
 
 // A Condition used for building nftables expressions.
@@ -89,11 +88,11 @@ func (c *counter) Match(in []expr.Any) int {
 }
 
 // TransportProtocol returns a Condition that matches packets of the specified transport protocol.
-func TransportProtocol(proto transport.Protocol) Condition {
+func TransportProtocol(proto netutils.Protocol) Condition {
 	switch proto {
-	case transport.TCP:
+	case netutils.TCP:
 		return Tcp()
-	case transport.UDP:
+	case netutils.UDP:
 		return Udp()
 	default:
 		panic("unknown transport protocol")

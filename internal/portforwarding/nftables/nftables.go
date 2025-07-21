@@ -12,11 +12,11 @@ import (
 	"github.com/google/nftables"
 	"github.com/mdlayher/netlink"
 	"github.com/pkg/errors"
+	netutils "k8s.io/utils/net"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/sysctl"
-	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
 
 // Available checks if the system is properly configured for port forwarding.
@@ -56,7 +56,7 @@ func NewIPv4(name string) *NfTables {
 
 // AddForwarding creates all the necessary nftables rules to forward traffic
 // from a specific port to a target IP address and port.
-func (nft *NfTables) AddForwarding(proto transport.Protocol, from uint16, target string, to uint16, comment string) error {
+func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error {
 	var err error
 	nft.once.Do(func() { err = nft.start() })
 	if err != nil {
@@ -67,7 +67,7 @@ func (nft *NfTables) AddForwarding(proto transport.Protocol, from uint16, target
 }
 
 // RemoveForwarding removes rules that forward traffic from the specified port.
-func (nft *NfTables) RemoveForwarding(proto transport.Protocol, from uint16, target string, to uint16) error {
+func (nft *NfTables) RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error {
 	return nft.cleanUp(nft.buildForwarding(proto, from, target, to, "")...)
 }
 
@@ -110,7 +110,7 @@ func (nft *NfTables) start() error {
 // for a specific protocol, port, and target. The rules use connection tracking marks to
 // associate the rules with each other, which helps with proper cleanup and prevents
 // interference between different forwarding rules.
-func (nft *NfTables) buildForwarding(proto transport.Protocol, from uint16, target string, to uint16, comment string) []mutation.TableMutation {
+func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) []mutation.TableMutation {
 	mutations := []mutation.TableMutation{
 		// Redirect incoming traffic (DNAT)
 		nft.scaffold("nat", "PREROUTING", nftables.ChainHookPrerouting,

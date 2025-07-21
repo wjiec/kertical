@@ -17,7 +17,6 @@ func forwardTCP(ctx context.Context, port uint16, target string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = listen.Close() }()
 
 	incoming := make(chan net.Conn)
 	go func() {
@@ -31,28 +30,33 @@ func forwardTCP(ctx context.Context, port uint16, target string) error {
 		}
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case conn := <-incoming:
-			go func() {
-				defer func() { _ = conn.Close() }()
+	go func() {
+		defer func() { _ = listen.Close() }()
 
-				outgoing, err := net.Dial("tcp", target)
-				if err != nil {
-					log.FromContext(ctx).Error(err, "failed to connect to target")
-					return
-				}
-				defer func() { _ = outgoing.Close() }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case conn := <-incoming:
+				go func() {
+					defer func() { _ = conn.Close() }()
 
-				// Bidirectionally forward data between incoming and outgoing connections
-				if err = pipe(ctx, conn, outgoing); err != nil {
-					log.FromContext(ctx).Error(err, "failed to forwarding data")
-				}
-			}()
+					outgoing, err := net.Dial("tcp", target)
+					if err != nil {
+						log.FromContext(ctx).Error(err, "failed to connect to target")
+						return
+					}
+					defer func() { _ = outgoing.Close() }()
+
+					// Bidirectionally forward data between incoming and outgoing connections
+					if err = pipe(ctx, conn, outgoing); err != nil {
+						log.FromContext(ctx).Error(err, "failed to forwarding data")
+					}
+				}()
+			}
 		}
-	}
+	}()
+	return nil
 }
 
 // pipe establishes a bidirectional data flow between two ReadWriters with context awareness.

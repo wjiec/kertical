@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
+	netutils "k8s.io/utils/net"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
-	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
 
 func TestCombine(t *testing.T) {
@@ -63,7 +63,7 @@ func TestCounter(t *testing.T) {
 }
 
 func TestTransportProtocol(t *testing.T) {
-	assert.NotNil(t, condition.TransportProtocol(transport.TCP))
+	assert.NotNil(t, condition.TransportProtocol(netutils.TCP))
 }
 
 func TestTcp(t *testing.T) {

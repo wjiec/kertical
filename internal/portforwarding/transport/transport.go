@@ -7,25 +7,18 @@ import (
 	"os"
 	"strconv"
 	"syscall"
-)
 
-// Protocol is a network protocol support by port-forwarding.
-type Protocol string
-
-// Constants for valid protocols:
-const (
-	TCP Protocol = "TCP"
-	UDP Protocol = "UDP"
+	netutils "k8s.io/utils/net"
 )
 
 // IsListening checks if a process is already listening on the specified protocol and port.
 //
 // Returns true if the port is in use, false otherwise.
-func IsListening(proto Protocol, port uint16) (bool, error) {
+func IsListening(proto netutils.Protocol, port uint16) (bool, error) {
 	switch proto {
-	case TCP:
+	case netutils.TCP:
 		return tcpListening(":" + strconv.Itoa(int(port)))
-	case UDP:
+	case netutils.UDP:
 		return udpListening(":" + strconv.Itoa(int(port)))
 	default:
 		return false, fmt.Errorf("unknown transport protocol: %s", proto)

@@ -30,7 +30,6 @@ func forwardUDP(ctx context.Context, port uint16, target string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = conn.Close() }()
 
 	// Create a buffered channel for queuing outbound messages
 	writeQueue := make(chan *writeMsg, 256)
@@ -53,32 +52,40 @@ func forwardUDP(ctx context.Context, port uint16, target string) error {
 	go sess.start(ctx)
 	defer sess.stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			if err = conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-				return errors.Wrap(err, "failed to set read deadline on udp connection")
-			}
+	go func() {
+		defer func() { _ = conn.Close() }()
 
-			buf := make([]byte, 32<<10)
-			n, addr, rErr := conn.ReadFrom(buf)
-			if rErr != nil {
-				if errors.Is(rErr, os.ErrDeadlineExceeded) {
-					continue
-				}
-				return rErr
-			}
-
-			us := sess.addIfAbsent(addr, writeQueue, dstAddr)
+		for {
 			select {
-			case us.data <- buf[:n]:
 			case <-ctx.Done():
-				return ctx.Err()
+				return
+			default:
+				if err = conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+					log.FromContext(ctx).Error(err, "failed to set read deadline on udp connection")
+					return
+				}
+
+				buf := make([]byte, 32<<10)
+				n, addr, rErr := conn.ReadFrom(buf)
+				if rErr != nil {
+					if errors.Is(rErr, os.ErrDeadlineExceeded) {
+						continue
+					}
+
+					log.FromContext(ctx).Error(err, "failed to read udp packet", "addr", addr.String())
+					return
+				}
+
+				us := sess.addIfAbsent(addr, writeQueue, dstAddr)
+				select {
+				case us.data <- buf[:n]:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
-	}
+	}()
+	return nil
 }
 
 // udpSession represents an active UDP forwarding session

@@ -18,6 +18,7 @@ package networking
 
 import (
 	"context"
+	stderrors "errors"
 	"iter"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	networkingv1alpha1 "github.com/wjiec/kertical/api/networking/v1alpha1"
+	portforwardingutils "github.com/wjiec/kertical/internal/controller/networking/portforwarding"
 	"github.com/wjiec/kertical/internal/events"
 	"github.com/wjiec/kertical/internal/kertical"
 	"github.com/wjiec/kertical/internal/portforwarding"
@@ -55,7 +57,7 @@ type PortForwardingReconciler struct {
 	client.Client
 	scheme *runtime.Scheme
 
-	forwarding portforwarding.PortForwarding
+	forwarder portforwarding.PortForwarding
 }
 
 // newPortForwardingReconciler creates a new instance of PortForwardingReconciler.
@@ -108,7 +110,7 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		// The object is being deleted
 		if controllerutil.ContainsFinalizer(&instance, PortForwardingFinalizerName) {
-			// our finalizer is present, so let's remove the port forwarding
+			// our finalizer is present, so let's remove the port-forwarding rules first
 			if err := r.removePortForwarding(ctx, &instance); err != nil {
 				// if fail to remove the port forwarding here, return with error
 				// so that it can be retried.
@@ -126,24 +128,76 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.syncPortForwarding(ctx, &instance); err != nil {
-		return ctrl.Result{}, err
+	return ctrl.Result{}, r.syncPortForwarding(ctx, &instance)
+}
+
+// syncPortForwarding reconciles the desired port forwarding configuration with the current state
+func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
+	var service corev1.Service
+	if err := r.Get(ctx, portforwardingutils.ServiceObjectKey(instance), &service); err != nil {
+		return err
 	}
 
-	return ctrl.Result{}, nil
+	// Calculate what ports need to be added, deleted, or left unchanged
+	additions, deletions, unchanged, err := portforwardingutils.SyncForwardingPorts(instance, &service)
+	if err != nil {
+		return err
+	}
+
+	var newForwardedPorts []networkingv1alpha1.ForwardedPort
+	newForwardedPorts = append(newForwardedPorts, unchanged...)
+
+	// Process port forwarding rules that need to be removed
+	for _, elem := range deletions {
+		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort))
+		if err != nil {
+			// 删除失败的情况下, 我们需要保持错误的状态等待后续再次进行移除
+			elem.State = networkingv1alpha1.PortForwardingResidual
+			newForwardedPorts = append(newForwardedPorts, elem)
+		}
+	}
+
+	// Process port forwarding rules that need to be added
+	for _, elem := range additions {
+		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort), service.Name)
+		if err != nil {
+			log.FromContext(ctx).Error(err, "failed to add forwarding")
+			if stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
+				elem.State = networkingv1alpha1.PortForwardingConflict
+			} else {
+				elem.State = networkingv1alpha1.PortForwardingFailed
+			}
+		}
+		newForwardedPorts = append(newForwardedPorts, elem)
+	}
+
+	// Update the status with the new forwarded ports list
+	newPf := instance.DeepCopy()
+	newPf.Status.ForwardedPorts = newForwardedPorts
+	return r.Status().Update(ctx, newPf)
 }
 
-func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
-	return nil
-}
+// removePortForwarding cleans up all active port forwarding for a [networkingv1alpha1.PortForwarding] resource
+func (r *PortForwardingReconciler) removePortForwarding(_ context.Context, instance *networkingv1alpha1.PortForwarding) error {
+	// If the current port forwarding doesn't have any configured ports, we have nothing to clean up
+	// The resource can be deleted directly
+	if len(instance.Status.ForwardedPorts) == 0 {
+		return nil
+	}
 
-func (r *PortForwardingReconciler) removePortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
+	for _, elem := range instance.Status.ForwardedPorts {
+		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort))
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error) {
-	if r.forwarding, err = portforwarding.New(kertical.ControllerName()); err != nil {
+	if r.forwarder, err = portforwarding.New(kertical.ControllerName()); err != nil {
 		return err
 	}
 
@@ -158,7 +212,7 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 }
 
 func (r *PortForwardingReconciler) CleanUp() error {
-	return r.forwarding.Close()
+	return r.forwarder.Close()
 }
 
 // resolveReferencedPortForwarding finds all PortForwarding resources in the same namespace

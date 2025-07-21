@@ -104,7 +104,11 @@ We warmly welcome your participation in the development of kertical.
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html).
+
+### Need-to-know conventions
+
+* [API Conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md)
 
 ### Prerequisites
 - go version v1.24.0+

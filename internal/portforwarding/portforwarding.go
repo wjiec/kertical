@@ -4,19 +4,24 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	netutils "k8s.io/utils/net"
 	"k8s.io/utils/set"
 
 	"github.com/wjiec/kertical/internal/portforwarding/transport"
+)
+
+var (
+	ErrPortAlreadyInuse = errors.New("port already in use")
 )
 
 // PortForwarding defines the operations for managing port forwarding rules.
 type PortForwarding interface {
 	// AddForwarding creates a new port forwarding rule to redirect traffic received
 	// on the specified protocol and port to the target IP address and port.
-	AddForwarding(proto transport.Protocol, from uint16, target string, to uint16, comment string) error
+	AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error
 
 	// RemoveForwarding deletes an existing port forwarding rule for the specified protocol and port.
-	RemoveForwarding(proto transport.Protocol, from uint16, target string, to uint16) error
+	RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error
 
 	// Close removes all port forwarding rule created by this instance.
 	Close() error
@@ -42,9 +47,9 @@ func New(name string) (PortForwarding, error) {
 
 	return &guardPortForwarding{
 		underlying: underlying,
-		listens: map[transport.Protocol]set.Set[uint16]{
-			transport.TCP: set.New[uint16](),
-			transport.UDP: set.New[uint16](),
+		listens: map[netutils.Protocol]set.Set[uint16]{
+			netutils.TCP: set.New[uint16](),
+			netutils.UDP: set.New[uint16](),
 		},
 	}, nil
 }
@@ -56,22 +61,22 @@ type guardPortForwarding struct {
 	underlying PortForwarding
 
 	mu      sync.Mutex
-	listens map[transport.Protocol]set.Set[uint16]
+	listens map[netutils.Protocol]set.Set[uint16]
 }
 
 // AddForwarding creates a new port forwarding rule after performing safety checks:
-func (gpf *guardPortForwarding) AddForwarding(proto transport.Protocol, from uint16, target string, to uint16, comment string) error {
+func (gpf *guardPortForwarding) AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error {
 	listening, err := transport.IsListening(proto, from)
 	if err != nil {
 		return errors.Wrap(err, "failed to check if port in the machine is listening")
 	} else if listening {
-		return errors.Errorf("port %d is already listening in the machine", from)
+		return ErrPortAlreadyInuse
 	}
 
 	gpf.mu.Lock()
 	defer gpf.mu.Unlock()
 	if gpf.listens[proto].Has(from) {
-		return errors.Errorf("port %d already has a forwarding", from)
+		return ErrPortAlreadyInuse
 	}
 
 	if err = gpf.underlying.AddForwarding(proto, from, target, to, comment); err != nil {
@@ -83,7 +88,7 @@ func (gpf *guardPortForwarding) AddForwarding(proto transport.Protocol, from uin
 }
 
 // RemoveForwarding removes a port forwarding rule after verifying it exists.
-func (gpf *guardPortForwarding) RemoveForwarding(proto transport.Protocol, from uint16, target string, to uint16) error {
+func (gpf *guardPortForwarding) RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error {
 	gpf.mu.Lock()
 	defer gpf.mu.Unlock()
 	if !gpf.listens[proto].Has(from) {

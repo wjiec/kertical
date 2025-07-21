@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/net"
 )
 
 // PortForwardingSpec defines the desired state of PortForwarding.
@@ -61,7 +62,50 @@ type PortForwardingPort struct {
 
 // PortForwardingStatus defines the observed state of PortForwarding.
 type PortForwardingStatus struct {
+	// Represents the observations of a PortForwarding's current state.
+	//
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ForwardedPorts represents the current status of each port forwarding
+	ForwardedPorts []ForwardedPort `json:"forwardingStatus,omitempty"`
 }
+
+// ForwardedPort represents the status of a port forwarding configuration
+type ForwardedPort struct {
+	// Protocol specifies the network protocol used for port forwarding (TCP or UDP)
+	Protocol net.Protocol `json:"protocol"`
+
+	// SourcePort is the port number currently being listened on
+	SourcePort int32 `json:"sourcePort"`
+
+	// TargetHost is the destination host address for the port forwarding
+	TargetHost string `json:"targetHost"`
+
+	// TargetPort is the port number to which we are forwarding
+	TargetPort int32 `json:"targetPort"`
+
+	// State represents the current state and description
+	State PortForwardingState `json:"state"`
+}
+
+// PortForwardingState represents the state of a port forwarding
+type PortForwardingState string
+
+const (
+	PortForwardingReady    PortForwardingState = "Ready"
+	PortForwardingConflict PortForwardingState = "Conflict"
+	PortForwardingResidual PortForwardingState = "Residual"
+	PortForwardingFailed   PortForwardingState = "Failed"
+)
+
+const (
+	PortForwardingConditionReady    = "Ready"
+	PortForwardingConditionDegraded = "Degraded"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:categories=kertical,shortName=kpf
