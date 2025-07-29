@@ -29,7 +29,7 @@ type PortForwardingSpec struct {
 	// port forwarding. This field is immutable.
 	//
 	// +kubebuilder:validation:Required
-	ServiceRef corev1.ObjectReference `json:"serviceRef"`
+	ServiceRef corev1.LocalObjectReference `json:"serviceRef"`
 
 	// The list of ports that are exposed on the host.
 	//
