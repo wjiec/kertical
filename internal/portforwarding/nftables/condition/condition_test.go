@@ -26,7 +26,7 @@ func TestCombine(t *testing.T) {
 				condition.SourceLocalAddr(),
 				condition.Tcp(),
 				condition.DestinationPort(38080),
-				condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080),
+				condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080),
 			))
 		})
 	})
@@ -36,7 +36,7 @@ func TestCombine(t *testing.T) {
 			condition.SourceLocalAddr(),
 			condition.Tcp(),
 			condition.DestinationPort(38080),
-			condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080),
+			condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080),
 		)
 
 		a := c.Build()
@@ -121,31 +121,31 @@ func TestSourcePort(t *testing.T) {
 }
 
 func TestDestinationIp(t *testing.T) {
-	assert.NotNil(t, condition.DestinationIp(net.ParseIP("172.16.1.1")))
+	assert.NotNil(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))))
 
 	t.Run("build", func(t *testing.T) {
-		assert.NotEmpty(t, condition.DestinationIp(net.ParseIP("172.16.1.1")).Build())
+		assert.NotEmpty(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Build())
 	})
 
 	t.Run("match", func(t *testing.T) {
-		a := condition.DestinationIp(net.ParseIP("172.16.1.1")).Build()
-		assert.Zero(t, condition.DestinationIp(net.ParseIP("172.16.1.2")).Match(a))
-		assert.NotZero(t, condition.DestinationIp(net.ParseIP("172.16.1.1")).Match(a))
+		a := condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Build()
+		assert.Zero(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.2"))).Match(a))
+		assert.NotZero(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Match(a))
 	})
 }
 
 func TestDestinationNAT(t *testing.T) {
-	assert.NotNil(t, condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080))
+	assert.NotNil(t, condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080))
 
 	t.Run("build", func(t *testing.T) {
-		assert.NotEmpty(t, condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080).Build())
+		assert.NotEmpty(t, condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080).Build())
 	})
 
 	t.Run("match", func(t *testing.T) {
-		a := condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080).Build()
-		assert.Zero(t, condition.DestinationNAT(net.ParseIP("172.16.1.2"), 8080).Match(a))
-		assert.Zero(t, condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8081).Match(a))
-		assert.NotZero(t, condition.DestinationNAT(net.ParseIP("172.16.1.1"), 8080).Match(a))
+		a := condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080).Build()
+		assert.Zero(t, condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.2")), 8080).Match(a))
+		assert.Zero(t, condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8081).Match(a))
+		assert.NotZero(t, condition.DestinationNAT(condition.ImmediateIp(net.ParseIP("172.16.1.1")), 8080).Match(a))
 	})
 }
 

@@ -82,8 +82,8 @@ type ForwardedPort struct {
 	// SourcePort is the port number currently being listened on
 	SourcePort int32 `json:"sourcePort"`
 
-	// TargetHost is the destination host address for the port forwarding
-	TargetHost string `json:"targetHost"`
+	// TargetHosts is the destination host address for the port forwarding
+	TargetHosts []string `json:"targetHosts"`
 
 	// TargetPort is the port number to which we are forwarding
 	TargetPort int32 `json:"targetPort"`

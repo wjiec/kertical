@@ -204,10 +204,12 @@ spec:
                     state:
                       description: State represents the current state and description
                       type: string
-                    targetHost:
-                      description: TargetHost is the destination host address for
+                    targetHosts:
+                      description: TargetHosts is the destination host address for
                         the port forwarding
-                      type: string
+                      items:
+                        type: string
+                      type: array
                     targetPort:
                       description: TargetPort is the port number to which we are forwarding
                       format: int32
@@ -216,7 +218,7 @@ spec:
                   - protocol
                   - sourcePort
                   - state
-                  - targetHost
+                  - targetHosts
                   - targetPort
                   type: object
                 type: array

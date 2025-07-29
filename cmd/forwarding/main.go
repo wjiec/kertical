@@ -10,6 +10,7 @@ import (
 
 	"github.com/wjiec/kertical/internal/bootstrap"
 	"github.com/wjiec/kertical/internal/controller/networking"
+	"github.com/wjiec/kertical/internal/controller/networking/portforwarding"
 )
 
 func main() {
@@ -18,6 +19,14 @@ func main() {
 		bootstrap.WithSetupLogging(zap.Options{Development: true}),
 		bootstrap.WithHealthProbe(":8081"),
 		bootstrap.WithMetricsServer(false, "0", false),
+		bootstrap.WithBeforeStart(func(ctx context.Context, mgr ctrl.Manager) error {
+			log.FromContext(ctx).Info("registering field-index for resources")
+			if err := portforwarding.RegisterFieldIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+				return errors.Wrap(err, "unable to register field index")
+			}
+
+			return nil
+		}),
 		bootstrap.WithBeforeStart(func(ctx context.Context, mgr ctrl.Manager) (err error) {
 			log.FromContext(ctx).Info("create and register controllers to the manager")
 			if stop, err = networking.SetupPortForwarding(mgr); err != nil {

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -138,8 +139,13 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 		return err
 	}
 
+	endpointSlices, err := r.listOwnedEndpointSlices(ctx, &service)
+	if err != nil {
+		return err
+	}
+
 	// Calculate what ports need to be added, deleted, or left unchanged
-	additions, deletions, unchanged, err := portforwardingutils.SyncForwardingPorts(instance, &service)
+	additions, deletions, unchanged, err := portforwardingutils.SyncForwardingPorts(instance, &service, endpointSlices)
 	if err != nil {
 		return err
 	}
@@ -149,9 +155,10 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 
 	// Process port forwarding rules that need to be removed
 	for _, elem := range deletions {
-		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort))
+		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort))
 		if err != nil {
-			// 删除失败的情况下, 我们需要保持错误的状态等待后续再次进行移除
+			// If deletion fails, we need to maintain the error status
+			// and wait for subsequent removal attempts.
 			elem.State = networkingv1alpha1.PortForwardingResidual
 			newForwardedPorts = append(newForwardedPorts, elem)
 		}
@@ -159,7 +166,7 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 
 	// Process port forwarding rules that need to be added
 	for _, elem := range additions {
-		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort), service.Name)
+		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort), service.Name)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "failed to add forwarding")
 			if stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
@@ -182,12 +189,35 @@ func (r *PortForwardingReconciler) removePortForwarding(_ context.Context, insta
 	// If the current port forwarding doesn't have any configured ports, we
 	// have nothing to clean up and the resource can be deleted directly.
 	for _, elem := range instance.Status.ForwardedPorts {
-		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort))
+		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort))
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// listOwnedEndpointSlices retrieves all [*discoveryv1.EndpointSlice] owned by a Service.
+func (r *PortForwardingReconciler) listOwnedEndpointSlices(ctx context.Context, svc *corev1.Service) ([]*discoveryv1.EndpointSlice, error) {
+	var endpointSliceList discoveryv1.EndpointSliceList
+	err := r.List(ctx, &endpointSliceList,
+		client.UnsafeDisableDeepCopy,
+		client.InNamespace(svc.Namespace),
+		client.MatchingFields{portforwardingutils.IndexServiceOwnerReference: svc.Name},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var endpointSlices []*discoveryv1.EndpointSlice
+	for i := range endpointSliceList.Items {
+		endpointSlice := &endpointSliceList.Items[i]
+		if endpointSlice.DeletionTimestamp == nil {
+			endpointSlices = append(endpointSlices, endpointSlice)
+		}
+	}
+
+	return endpointSlices, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
