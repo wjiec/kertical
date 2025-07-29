@@ -36,12 +36,14 @@ spec:
                     operator: In
                     values:
                       - linux
+      hostNetwork: true
       securityContext:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
         - name: sysctl
           image: busybox
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
@@ -54,13 +56,8 @@ spec:
           args:
             - --health-probe-bind-address=:8081
           securityContext:
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-              add:
-                - NET_ADMIN
+            privileged: true
+            runAsUser: 0
           livenessProbe:
             httpGet:
               path: /healthz

@@ -151,7 +151,7 @@ func (t *table) Present(tr TableReader) func(TableWriter) error {
 			if err := tw.AddTable(name); err != nil {
 				return errors.Wrap(err, "failed to add table to nftables")
 			}
-			groups[name] = append(groups[name], &nftables.Chain{})
+			groups[name] = make([]*nftables.Chain, 0)
 		}
 
 		// For security priority and fast failure considerations, traffic needs to be allowed
@@ -159,10 +159,10 @@ func (t *table) Present(tr TableReader) func(TableWriter) error {
 		// in each table.
 		for name := range groups {
 			crw := &chainReadWriter{tr: tr, tw: tw, table: name, hook: t.hook}
-			if err := runPresent[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
+			if err := runPresent[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
 				return err
 			}
-			if err := runPresent[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
+			if err := runPresent[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
 				return err
 			}
 		}
@@ -182,10 +182,10 @@ func (t *table) CleanUp(tr TableReader) func(TableWriter) error {
 	return func(tw TableWriter) error {
 		for name := range groups {
 			crw := &chainReadWriter{tr: tr, tw: tw, table: name, hook: t.hook}
-			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
+			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
 				return err
 			}
-			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
+			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
 				return err
 			}
 		}

@@ -18,6 +18,7 @@ type writeMsg struct {
 	buf  []byte
 }
 
+// UdpDialer is a function type that creates new UDP connections.
 type UdpDialer func() (*net.UDPConn, error)
 
 // forwardUDP creates a UDP proxy that listens on the specified port and

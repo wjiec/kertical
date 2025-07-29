@@ -58,8 +58,7 @@ func NewIPv4(name string) *NfTables {
 
 // AddForwarding creates all the necessary nftables rules to forward traffic
 // from a specific port to a target IP address and port.
-func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) error {
-	var err error
+func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) (err error) {
 	nft.once.Do(func() { err = nft.start() })
 	if err != nil {
 		return errors.Wrap(err, "nftables: failed to start port forwarding")
@@ -222,7 +221,7 @@ func (nft *NfTables) nameOf(suffix string) string {
 
 // internalNameOf creates a namespaced internal resource name (like sets or maps)
 func (nft *NfTables) internalNameOf(kind, suffix string) string {
-	return strings.ToLower("__" + kind + strings.Join([]string{nft.name, suffix}, "_"))
+	return strings.ToLower("__" + kind + "_" + strings.Join([]string{nft.name, suffix}, "_"))
 }
 
 // present applies a series of mutations to ensure they are present in the current state.
@@ -248,10 +247,6 @@ type MutationFunc func(mutation.TableMutation, mutation.TableReader) func(mutati
 // runMutation processes a series of mutations using the specified action function.
 func (nft *NfTables) runMutation(action MutationFunc, mutations []mutation.TableMutation) error {
 	for _, mut := range mutations {
-		if mut == nil {
-			continue
-		}
-
 		// creating a fresh reader/writer for each one.
 		rw, err := newReadWriter(nft.name, nft.family)
 		if err != nil {
@@ -281,7 +276,7 @@ func withOpenConn(action func(*nftables.Conn) error) error {
 	if err = action(conn); err != nil {
 		return err
 	}
-	return errors.Wrap(conn.Flush(), "failed to send all commands to nftables")
+	return errors.Wrap(conn.Flush(), "failed to flush commands to nftables")
 }
 
 // ignoreNotFound returns nil if the error is nil or represents a "not found" error.

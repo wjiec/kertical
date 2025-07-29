@@ -66,7 +66,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -v
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # Prometheus and CertManager are installed by default; skip with:
 # - PROMETHEUS_INSTALL_SKIP=true
@@ -88,7 +87,7 @@ _reset-image:
 	cd config/controller-manager && $(KUSTOMIZE) edit set image controller-manager=$(CONTROLLER_MANAGER_IMG)
 	cd config/webhook-manager && $(KUSTOMIZE) edit set image webhook-manager=$(WEBHOOK_MANAGER_IMG)
 	cd config/gencert && $(KUSTOMIZE) edit set image gencert=$(GENCERT_IMG)
-	cd config/forwarding && $(KUSTOMIZE) edit set image forwarding=$(FORWARDING_IMG)
+	cd config/forwarding/bases && $(KUSTOMIZE) edit set image forwarding=$(FORWARDING_IMG)
 
 ##@ Build
 

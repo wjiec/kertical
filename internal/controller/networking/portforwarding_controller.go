@@ -25,6 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -151,7 +153,18 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	}
 
 	var newForwardedPorts []networkingv1alpha1.ForwardedPort
-	newForwardedPorts = append(newForwardedPorts, unchanged...)
+
+	// we still need to ensure they're configured correctly
+	for _, elem := range unchanged {
+		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort), service.Name)
+		if err != nil {
+			if !stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
+				log.FromContext(ctx).Error(err, "failed to add forwarding")
+				elem.State = networkingv1alpha1.PortForwardingFailed
+			}
+		}
+		newForwardedPorts = append(newForwardedPorts, elem)
+	}
 
 	// Process port forwarding rules that need to be removed
 	for _, elem := range deletions {
@@ -181,6 +194,12 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	// Update the status with the new forwarded ports list
 	newPf := instance.DeepCopy()
 	newPf.Status.ForwardedPorts = newForwardedPorts
+	meta.SetStatusCondition(&newPf.Status.Conditions, metav1.Condition{
+		Type:               networkingv1alpha1.PortForwardingConditionReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: instance.Generation,
+		Reason:             "Sync",
+	})
 	return r.Status().Update(ctx, newPf)
 }
 
@@ -190,7 +209,7 @@ func (r *PortForwardingReconciler) removePortForwarding(_ context.Context, insta
 	// have nothing to clean up and the resource can be deleted directly.
 	for _, elem := range instance.Status.ForwardedPorts {
 		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort))
-		if err != nil {
+		if err != nil && !stderrors.Is(err, portforwarding.ErrPortNotForwarded) {
 			return err
 		}
 	}

@@ -103,11 +103,12 @@ const (
 )
 
 const (
-	PortForwardingConditionReady    = "Ready"
-	PortForwardingConditionDegraded = "Degraded"
+	PortForwardingConditionReady = "Ready"
 )
 
 // +kubebuilder:object:root=true
+// +kubebuilder:printcolumn:name="Service",type=string,JSONPath=".spec.serviceRef.name"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:resource:categories=kertical,shortName=kpf
 // +kubebuilder:subresource:status
 

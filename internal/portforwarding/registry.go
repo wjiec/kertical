@@ -31,8 +31,10 @@ var registry []*realImplement[PortForwarding]
 // registerImplement adds a new port forwarding implementation to the registry
 func registerImplement[T PortForwarding](impl *realImplement[T]) {
 	registry = append(registry, &realImplement[PortForwarding]{
+		Name:      impl.Name,
 		Available: impl.Available,
 		New:       func(name string) (PortForwarding, error) { return impl.New(name) },
+		Order:     impl.Order,
 	})
 
 	slices.SortFunc(registry, func(a, b *realImplement[PortForwarding]) int {

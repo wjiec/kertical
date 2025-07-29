@@ -6,12 +6,14 @@ import (
 	"github.com/pkg/errors"
 	netutils "k8s.io/utils/net"
 	"k8s.io/utils/set"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
 
 var (
 	ErrPortAlreadyInuse = errors.New("port already in use")
+	ErrPortNotForwarded = errors.New("port is not forwarded yet")
 )
 
 // PortForwarding defines the operations for managing port forwarding rules.
@@ -39,6 +41,9 @@ func New(name string) (PortForwarding, error) {
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create port forwarding")
 			}
+
+			log.Log.Info("port forwarding implementation", "implementation", impl.Name)
+			break
 		}
 	}
 	if underlying == nil {
@@ -92,7 +97,7 @@ func (gpf *guardPortForwarding) RemoveForwarding(proto netutils.Protocol, from u
 	gpf.mu.Lock()
 	defer gpf.mu.Unlock()
 	if !gpf.listens[proto].Has(from) {
-		return errors.Errorf("port %d is not forwarded yet", from)
+		return ErrPortNotForwarded
 	}
 
 	if err := gpf.underlying.RemoveForwarding(proto, from, target, to); err != nil {

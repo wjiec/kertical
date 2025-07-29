@@ -1,7 +1,10 @@
 package portforwarding
 
 import (
+	"bytes"
 	"fmt"
+	"net"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -17,7 +20,7 @@ import (
 func ServiceObjectKey(pf *networkingv1alpha1.PortForwarding) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      pf.Spec.ServiceRef.Name,
-		Namespace: pf.Spec.ServiceRef.Namespace,
+		Namespace: pf.Namespace,
 	}
 }
 
@@ -100,6 +103,9 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 				}
 			}
 		}
+		slices.SortFunc(targetHosts, func(a, b string) int {
+			return bytes.Compare(net.ParseIP(a), net.ParseIP(b))
+		})
 
 		// If no specific host port is specified, use the service port as the source port
 		sourcePort := servicePort.Port
@@ -110,7 +116,7 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 		protocol := netutils.Protocol(servicePort.Protocol)
 		if forwardPort, forwarded := forwardedPorts[sourcePort]; forwarded {
 			// If this port is already forwarded, check if we need to recreate the rule
-			if forwardPort.Protocol != protocol || forwardPort.TargetPort != sourcePort {
+			if forwardPort.Protocol != protocol || forwardPort.SourcePort != sourcePort {
 				// We need to delete the old forwarding rule and add a new one
 				deletions = append(deletions, forwardPort)
 				additions = append(additions, networkingv1alpha1.ForwardedPort{

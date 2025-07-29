@@ -6,10 +6,12 @@ import (
 	"io"
 	"net"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// TcpDialer is a function type that creates new TCP connections.
 type TcpDialer func() (net.Conn, error)
 
 // forwardTCP creates a TCP proxy that forwards connections
@@ -25,7 +27,9 @@ func forwardTCP(ctx context.Context, port uint16, dialer TcpDialer) error {
 		for {
 			conn, err := listen.Accept()
 			if err != nil {
-				log.FromContext(ctx).Error(err, "failed to accepting incoming connection")
+				if !errors.Is(err, net.ErrClosed) {
+					log.FromContext(ctx).Error(err, "failed to accepting incoming connection")
+				}
 				return
 			}
 			incoming <- conn
