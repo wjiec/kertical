@@ -10,9 +10,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+type TcpDialer func() (net.Conn, error)
+
 // forwardTCP creates a TCP proxy that forwards connections
 // from the specified port to the target address.
-func forwardTCP(ctx context.Context, port uint16, target string) error {
+func forwardTCP(ctx context.Context, port uint16, dialer TcpDialer) error {
 	listen, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
@@ -41,7 +43,7 @@ func forwardTCP(ctx context.Context, port uint16, target string) error {
 				go func() {
 					defer func() { _ = conn.Close() }()
 
-					outgoing, err := net.Dial("tcp", target)
+					outgoing, err := dialer()
 					if err != nil {
 						log.FromContext(ctx).Error(err, "failed to connect to target")
 						return

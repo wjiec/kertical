@@ -3,9 +3,11 @@
 package nftables
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -56,7 +58,7 @@ func NewIPv4(name string) *NfTables {
 
 // AddForwarding creates all the necessary nftables rules to forward traffic
 // from a specific port to a target IP address and port.
-func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error {
+func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) error {
 	var err error
 	nft.once.Do(func() { err = nft.start() })
 	if err != nil {
@@ -67,34 +69,33 @@ func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target 
 }
 
 // RemoveForwarding removes rules that forward traffic from the specified port.
-func (nft *NfTables) RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error {
+func (nft *NfTables) RemoveForwarding(proto netutils.Protocol, from uint16, target []string, to uint16) error {
 	return nft.cleanUp(nft.buildForwarding(proto, from, target, to, "")...)
 }
 
 // Close removes all chains and rules created by this NfTables instance.
 // This cleans up the entire port forwarding configuration.
 func (nft *NfTables) Close() error {
-	return nft.cleanUp(
-		nft.foundation("nat", "PREROUTING", nftables.ChainHookPrerouting),
-		nft.foundation("nat", "POSTROUTING", nftables.ChainHookPostrouting),
-		nft.foundation("filter", "FORWARD", nftables.ChainHookForward,
-			// Allow established connections through the firewall
-			mutation.Rule(
-				condition.TrackingEstablishedRelated(),
-				condition.Accept(),
-			).First(true).Comment(nft.name),
-		),
-		nft.foundation("nat", "OUTPUT", nftables.ChainHookOutput),
-	)
+	return nft.cleanUp(nft.structure()...)
 }
 
 // start initializes the basic chain structure needed for port forwarding.
 //
 // It creates all necessary tables and chains but doesn't add any forwarding rules yet.
 func (nft *NfTables) start() error {
-	return nft.present(
+	return nft.present(nft.structure()...)
+}
+
+// structure defines the basic nftables structure required for port forwarding
+func (nft *NfTables) structure() []mutation.TableMutation {
+	return []mutation.TableMutation{
+		// Setup NAT PREROUTING chain for incoming traffic redirection
 		nft.foundation("nat", "PREROUTING", nftables.ChainHookPrerouting),
+
+		// Setup NAT POSTROUTING chain for outgoing traffic masquerading
 		nft.foundation("nat", "POSTROUTING", nftables.ChainHookPostrouting),
+
+		// Setup filter FORWARD chain with rule to allow established connections
 		nft.foundation("filter", "FORWARD", nftables.ChainHookForward,
 			// Allow established connections through the firewall
 			mutation.Rule(
@@ -102,50 +103,80 @@ func (nft *NfTables) start() error {
 				condition.Accept(),
 			).First(true).Comment(nft.name),
 		),
+
+		// Setup NAT OUTPUT chain for locally generated traffic
 		nft.foundation("nat", "OUTPUT", nftables.ChainHookOutput),
-	)
+	}
 }
 
 // buildForwarding creates the set of table mutations needed to implement port forwarding
 // for a specific protocol, port, and target. The rules use connection tracking marks to
 // associate the rules with each other, which helps with proper cleanup and prevents
 // interference between different forwarding rules.
-func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) []mutation.TableMutation {
-	mutations := []mutation.TableMutation{
-		// Redirect incoming traffic (DNAT)
-		nft.scaffold("nat", "PREROUTING", nftables.ChainHookPrerouting,
-			mutation.Rule(
-				condition.TransportProtocol(proto),
-				condition.DestinationPort(from),
-				condition.Counter(),
-				condition.SetTrackingMark(uint32(from)),
-				condition.DestinationNAT(net.ParseIP(target), to),
-			).Comment(comment),
-		),
-		// Handle return traffic with masquerading (SNAT)
-		nft.scaffold("nat", "POSTROUTING", nftables.ChainHookPostrouting,
-			mutation.Rule(
-				condition.DestinationIp(net.ParseIP(target)),
-				condition.TransportProtocol(proto),
-				condition.DestinationPort(to),
-				condition.TrackingMark(uint32(from)),
-				condition.Counter(),
-				condition.Masquerade(),
-			).Comment(comment),
-		),
-		// Allow connections through the firewall
-		nft.scaffold("filter", "FORWARD", nftables.ChainHookForward,
-			// Allow new connections to the forwarded service through the firewall
-			mutation.Rule(
-				condition.DestinationIp(net.ParseIP(target)),
-				condition.TransportProtocol(proto),
-				condition.DestinationPort(to),
-				condition.TrackingMark(uint32(from)),
-				condition.Counter(),
-				condition.Accept(),
-			).Comment(comment),
-		),
+func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) []mutation.TableMutation {
+	targetIp := mapTo(target, func(s string, _ int) net.IP { return net.ParseIP(s).To4() })
+	slices.SortFunc(targetIp, func(a, b net.IP) int {
+		return bytes.Compare(a, b)
+	})
+
+	var incomingConstrain, outgoingConstrain condition.DynamicConstrain
+	var incomingSet, outgoingMap []mutation.SetMutation
+	if len(targetIp) > 1 {
+		incomingSetName := nft.internalNameOf("set", comment)
+		incomingSet = append(incomingSet, mutation.IPv4AddrSet(incomingSetName).
+			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
+				return mutation.IPv4Addr(ip).Comment(comment)
+			})...),
+		)
+		incomingConstrain = condition.IpLookup(incomingSetName)
+
+		outgoingMapName := nft.internalNameOf("map", comment)
+		outgoingMap = append(incomingSet, mutation.IndexedIPv4AddrMap(outgoingMapName).
+			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
+				return mutation.IndexedIPv4Addr(ip, uint32(index)).Comment(comment)
+			})...))
+		outgoingConstrain = condition.LoadBalancing(outgoingMapName)
+	} else {
+		incomingConstrain = condition.IpEquals(targetIp[0])
+		outgoingConstrain = condition.ImmediateIp(targetIp[0])
 	}
+
+	var mutations []mutation.TableMutation
+
+	// Redirect incoming traffic (DNAT)
+	mutations = append(mutations, nft.scaffold("nat", "PREROUTING", nftables.ChainHookPrerouting,
+		mutation.Rule(
+			condition.TransportProtocol(proto),
+			condition.DestinationPort(from),
+			condition.Counter(),
+			condition.SetTrackingMark(uint32(from)),
+			condition.DestinationNAT(outgoingConstrain, to),
+		).Comment(comment),
+	).AddSet(outgoingMap...))
+
+	// Handle return traffic with masquerading (SNAT)
+	mutations = append(mutations, nft.scaffold("nat", "POSTROUTING", nftables.ChainHookPostrouting,
+		mutation.Rule(
+			condition.DestinationIp(incomingConstrain),
+			condition.TransportProtocol(proto),
+			condition.DestinationPort(to),
+			condition.TrackingMark(uint32(from)),
+			condition.Counter(),
+			condition.Masquerade(),
+		).Comment(comment),
+	).AddSet(incomingSet...))
+
+	// Allow connections through the firewall
+	mutations = append(mutations, nft.scaffold("filter", "FORWARD", nftables.ChainHookForward,
+		mutation.Rule(
+			condition.DestinationIp(incomingConstrain),
+			condition.TransportProtocol(proto),
+			condition.DestinationPort(to),
+			condition.TrackingMark(uint32(from)),
+			condition.Counter(),
+			condition.Accept(),
+		).Comment(comment),
+	).AddSet(incomingSet...))
 
 	if nft.locally {
 		// Optional: Handle locally generated traffic
@@ -155,9 +186,9 @@ func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, targe
 				condition.TransportProtocol(proto),
 				condition.DestinationPort(from),
 				condition.Counter(),
-				condition.DestinationNAT(net.ParseIP(target), to),
+				condition.DestinationNAT(outgoingConstrain, to),
 			).Comment(comment),
-		))
+		).AddSet(outgoingMap...))
 	}
 
 	return mutations
@@ -187,6 +218,11 @@ func (nft *NfTables) scaffold(table, chain string, hook *nftables.ChainHook, rul
 // nameOf creates a namespaced chain name using the NfTables instance name as prefix.
 func (nft *NfTables) nameOf(suffix string) string {
 	return strings.Join([]string{nft.name, strings.ToUpper(suffix)}, "-")
+}
+
+// internalNameOf creates a namespaced internal resource name (like sets or maps)
+func (nft *NfTables) internalNameOf(kind, suffix string) string {
+	return strings.ToLower("__" + kind + strings.Join([]string{nft.name, suffix}, "_"))
 }
 
 // present applies a series of mutations to ensure they are present in the current state.
@@ -289,4 +325,13 @@ func unmarshalUserComment(data []byte) string {
 		return ""
 	}
 	return string(data[2 : 1+sz])
+}
+
+// mapTo transforms a slice of type T to a slice of type R using the provided transform function.
+func mapTo[T any, R any](s []T, transform func(T, int) R) []R {
+	res := make([]R, 0, len(s))
+	for i, elem := range s {
+		res = append(res, transform(elem, i))
+	}
+	return res
 }

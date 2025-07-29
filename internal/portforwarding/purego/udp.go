@@ -18,14 +18,11 @@ type writeMsg struct {
 	buf  []byte
 }
 
+type UdpDialer func() (*net.UDPConn, error)
+
 // forwardUDP creates a UDP proxy that listens on the specified port and
 // forwards traffic to the target address.
-func forwardUDP(ctx context.Context, port uint16, target string) error {
-	dstAddr, err := net.ResolveUDPAddr("udp", target)
-	if err != nil {
-		return err
-	}
-
+func forwardUDP(ctx context.Context, port uint16, dialer UdpDialer) error {
 	conn, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
@@ -76,7 +73,7 @@ func forwardUDP(ctx context.Context, port uint16, target string) error {
 					return
 				}
 
-				us := sess.addIfAbsent(addr, writeQueue, dstAddr)
+				us := sess.addIfAbsent(addr, writeQueue, dialer)
 				select {
 				case us.data <- buf[:n]:
 				case <-ctx.Done():
@@ -98,11 +95,11 @@ type udpSession struct {
 }
 
 // serve handles the bidirectional forwarding for a UDP session
-func (s *udpSession) serve(target *net.UDPAddr) {
+func (s *udpSession) serve(dialer UdpDialer) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	conn, err := net.DialUDP("udp", nil, target)
+	conn, err := dialer()
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed to dial udp server")
 		return
@@ -136,7 +133,7 @@ func (s *udpSession) serve(target *net.UDPAddr) {
 			return
 		case buf := <-s.data:
 			if _, err = conn.Write(buf); err != nil {
-				log.FromContext(ctx).Error(err, "failed to send udp packet", "target", target.String())
+				log.FromContext(ctx).Error(err, "failed to send udp packet", "target", conn.RemoteAddr())
 				continue
 			}
 			s.lastActive = time.Now()
@@ -152,7 +149,7 @@ type sessions struct {
 }
 
 // addIfAbsent gets an existing session or creates a new one if not found.
-func (s *sessions) addIfAbsent(src net.Addr, wq chan<- *writeMsg, target *net.UDPAddr) *udpSession {
+func (s *sessions) addIfAbsent(src net.Addr, wq chan<- *writeMsg, dialer UdpDialer) *udpSession {
 	s.RLock()
 	if us, found := s.m[src.String()]; found {
 		s.RUnlock()
@@ -170,7 +167,7 @@ func (s *sessions) addIfAbsent(src net.Addr, wq chan<- *writeMsg, target *net.UD
 		writeQueue: wq,
 	}
 
-	go us.serve(target)
+	go us.serve(dialer)
 	s.m[src.String()] = us
 	return us
 }

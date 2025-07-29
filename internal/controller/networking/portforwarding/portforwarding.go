@@ -6,7 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/net"
+	netutils "k8s.io/utils/net"
 
 	networkingv1alpha1 "github.com/wjiec/kertical/api/networking/v1alpha1"
 )
@@ -33,7 +33,9 @@ type ForwardedPorts = []networkingv1alpha1.ForwardedPort
 
 // SyncForwardingPorts reconciles the current forwarded ports with the desired configuration
 // Returns three lists: ports to add, ports to delete, and unchanged ports
-func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Service) (ForwardedPorts, ForwardedPorts, ForwardedPorts, error) {
+func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Service) (
+	ForwardedPorts, ForwardedPorts, ForwardedPorts, error,
+) {
 	forwardedPorts := make(map[int32]networkingv1alpha1.ForwardedPort)
 	for _, elem := range pf.Status.ForwardedPorts {
 		forwardedPorts[elem.SourcePort] = elem
@@ -46,15 +48,16 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 			return nil, nil, nil, fmt.Errorf("port %q not found in the service %q", forwarding.Target, svc.Name)
 		}
 
+		// 如果未指定具体使用的端口号，则默认使用在 target 中指定的端口号
 		sourcePort := servicePort.Port
 		if forwarding.HostPort != nil {
 			sourcePort = *forwarding.HostPort
 		}
 
-		protocol := net.Protocol(servicePort.Protocol)
+		protocol := netutils.Protocol(servicePort.Protocol)
 		if forwardPort, forwarded := forwardedPorts[sourcePort]; forwarded {
 			// If this port is already forwarded, check if we need to recreate the rule
-			if forwardPort.Protocol != protocol || forwardPort.TargetPort != servicePort.Port {
+			if forwardPort.Protocol != protocol || forwardPort.TargetPort != sourcePort {
 				// We need to delete the old forwarding rule and add a new one
 				deletions = append(deletions, forwardPort)
 				additions = append(additions, networkingv1alpha1.ForwardedPort{

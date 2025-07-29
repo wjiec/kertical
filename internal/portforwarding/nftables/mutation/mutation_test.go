@@ -3,6 +3,7 @@
 package mutation_test
 
 import (
+	"net"
 	"testing"
 
 	"github.com/google/nftables"
@@ -30,4 +31,20 @@ func TestRegularChain(t *testing.T) {
 
 func TestRule(t *testing.T) {
 	assert.NotNil(t, mutation.Rule(condition.Counter(), condition.Masquerade()))
+}
+
+func TestIPv4AddrSet(t *testing.T) {
+	assert.NotNil(t, mutation.IPv4AddrSet("targets"))
+}
+
+func TestIndexedIPv4AddrMap(t *testing.T) {
+	assert.NotNil(t, mutation.IndexedIPv4AddrMap("targets"))
+}
+
+func TestIPv4Addr(t *testing.T) {
+	assert.NotNil(t, mutation.IPv4Addr(net.ParseIP("10.1.2.3")))
+}
+
+func TestIndexedIPv4Addr(t *testing.T) {
+	assert.NotNil(t, mutation.IndexedIPv4Addr(net.ParseIP("10.1.2.3"), 3))
 }

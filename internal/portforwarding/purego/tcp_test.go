@@ -13,7 +13,7 @@ func Test_forwardTCP(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	if assert.NoError(t, forwardTCP(ctx, 56789, "1.1.1.1:80")) {
+	if assert.NoError(t, forwardTCP(ctx, 56789, newTcpDialer([]string{"1.1.1.1"}, 80))) {
 		resp, err := http.Get("http://localhost:56789")
 		if assert.NoError(t, err) {
 			defer func() { _ = resp.Body.Close() }()

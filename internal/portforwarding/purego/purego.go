@@ -2,9 +2,11 @@ package purego
 
 import (
 	"context"
-	"fmt"
+	"net"
+	"strconv"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/util/rand"
 	netutils "k8s.io/utils/net"
 )
 
@@ -36,19 +38,18 @@ type forwarder struct {
 }
 
 // AddForwarding creates a new port forwarding for the specified protocol and ports.
-func (p *PureGo) AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error {
+func (p *PureGo) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, _ string) error {
 	ctx, cancel := context.WithCancel(p.ctx)
-	forwardedTo := fmt.Sprintf("%s:%d", target, to)
 
 	switch proto {
 	case netutils.TCP:
-		if err := forwardTCP(ctx, from, forwardedTo); err != nil {
+		if err := forwardTCP(ctx, from, newTcpDialer(target, to)); err != nil {
 			defer cancel()
 			return err
 		}
 		p.forwards[from].tcp = cancel
 	case netutils.UDP:
-		if err := forwardUDP(ctx, from, forwardedTo); err != nil {
+		if err := forwardUDP(ctx, from, newUdpDialer(target, to)); err != nil {
 			defer cancel()
 			return err
 		}
@@ -61,7 +62,7 @@ func (p *PureGo) AddForwarding(proto netutils.Protocol, from uint16, target stri
 }
 
 // RemoveForwarding stops an active port forwarding for the specified protocol and ports.
-func (p *PureGo) RemoveForwarding(proto netutils.Protocol, from uint16, _ string, _ uint16) error {
+func (p *PureGo) RemoveForwarding(proto netutils.Protocol, from uint16, _ []string, _ uint16) error {
 	switch proto {
 	case netutils.TCP:
 		if p.forwards[from].tcp != nil {
@@ -81,4 +82,24 @@ func (p *PureGo) RemoveForwarding(proto netutils.Protocol, from uint16, _ string
 func (p *PureGo) Close() error {
 	p.cancel()
 	return nil
+}
+
+// newTcpDialer creates a dialer function that randomly selects one of the
+// provided addresses to establish a TCP connection on the specified port.
+func newTcpDialer(addresses []string, port uint16) TcpDialer {
+	return func() (net.Conn, error) {
+		return net.Dial("tcp", addresses[rand.Intn(len(addresses))]+":"+strconv.Itoa(int(port)))
+	}
+}
+
+// newUdpDialer creates a dialer function that randomly selects one of the
+// provided addresses to establish a UDP connection on the specified port.
+func newUdpDialer(addresses []string, port uint16) UdpDialer {
+	return func() (*net.UDPConn, error) {
+		addr, err := net.ResolveUDPAddr("udp", addresses[rand.Intn(len(addresses))]+":"+strconv.Itoa(int(port)))
+		if err != nil {
+			return nil, err
+		}
+		return net.DialUDP("udp", nil, addr)
+	}
 }

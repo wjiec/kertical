@@ -18,10 +18,10 @@ var (
 type PortForwarding interface {
 	// AddForwarding creates a new port forwarding rule to redirect traffic received
 	// on the specified protocol and port to the target IP address and port.
-	AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error
+	AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) error
 
 	// RemoveForwarding deletes an existing port forwarding rule for the specified protocol and port.
-	RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error
+	RemoveForwarding(proto netutils.Protocol, from uint16, target []string, to uint16) error
 
 	// Close removes all port forwarding rule created by this instance.
 	Close() error
@@ -65,7 +65,7 @@ type guardPortForwarding struct {
 }
 
 // AddForwarding creates a new port forwarding rule after performing safety checks:
-func (gpf *guardPortForwarding) AddForwarding(proto netutils.Protocol, from uint16, target string, to uint16, comment string) error {
+func (gpf *guardPortForwarding) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) error {
 	listening, err := transport.IsListening(proto, from)
 	if err != nil {
 		return errors.Wrap(err, "failed to check if port in the machine is listening")
@@ -88,7 +88,7 @@ func (gpf *guardPortForwarding) AddForwarding(proto netutils.Protocol, from uint
 }
 
 // RemoveForwarding removes a port forwarding rule after verifying it exists.
-func (gpf *guardPortForwarding) RemoveForwarding(proto netutils.Protocol, from uint16, target string, to uint16) error {
+func (gpf *guardPortForwarding) RemoveForwarding(proto netutils.Protocol, from uint16, target []string, to uint16) error {
 	gpf.mu.Lock()
 	defer gpf.mu.Unlock()
 	if !gpf.listens[proto].Has(from) {

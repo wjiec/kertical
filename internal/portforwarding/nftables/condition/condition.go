@@ -169,23 +169,22 @@ func (sp *sourcePort) Match(in []expr.Any) int {
 }
 
 // DestinationIp returns a Condition that matches packets with the specified destination IP address.
-func DestinationIp(target net.IP) Condition {
+func DestinationIp(target DynamicConstrain) Condition {
 	return &destinationIp{
 		target: target,
 	}
 }
 
 // destinationIp implements the Condition interface for matching destination IP addresses.
-type destinationIp struct{ target net.IP }
+type destinationIp struct{ target DynamicConstrain }
 
 // Build creates nftables expressions to match packets with a specific destination IP.
 func (di *destinationIp) Build() []expr.Any {
 	// It loads 4 bytes from offset 0x10 in the network header (where the destination IP is located in IPv4)
 	// into register 0x1, then compares it with the specified IP address.
-	return []expr.Any{
+	return append([]expr.Any{
 		&expr.Payload{Base: expr.PayloadBaseNetworkHeader, Offset: 0x10, Len: 0x4, DestRegister: 0x1},
-		&expr.Cmp{Register: 0x1, Op: expr.CmpOpEq, Data: di.target.To4()},
-	}
+	}, di.target(0x1)...)
 }
 
 // Match checks if the input expressions match this destination IP condition.
@@ -195,13 +194,13 @@ func (di *destinationIp) Match(in []expr.Any) int {
 
 // DestinationNAT returns a Condition that performs destination NAT (DNAT)
 // to the specified target IP and port.
-func DestinationNAT(target net.IP, port uint16) Condition {
+func DestinationNAT(target DynamicConstrain, port uint16) Condition {
 	return &destinationNAT{target: target, port: port}
 }
 
 // destinationNAT implements the Condition interface for destination network address translation.
 type destinationNAT struct {
-	target net.IP
+	target DynamicConstrain
 	port   uint16
 }
 
@@ -209,15 +208,14 @@ type destinationNAT struct {
 func (d *destinationNAT) Build() []expr.Any {
 	// It loads the target IPv4 address into register 0x1, the target port into register 0x2,
 	// and then applies the DNAT operation using these registers.
-	return []expr.Any{
-		&expr.Immediate{Register: 0x1, Data: d.target.To4()},
+	return append(d.target(0x1),
 		&expr.Immediate{Register: 0x2, Data: binaryutil.BigEndian.PutUint16(d.port)},
 		&expr.NAT{
 			Type: expr.NATTypeDestNAT, Family: unix.NFPROTO_IPV4,
 			RegAddrMin: 0x1, RegAddrMax: 0x1, RegProtoMin: 0x2, RegProtoMax: 0x2,
 			Specified: true,
 		},
-	}
+	)
 }
 
 // Match checks if the input expressions match this destination NAT condition.
@@ -402,4 +400,47 @@ func prefixMatch(expected []expr.Any, actual []expr.Any) int {
 		return el
 	}
 	return 0
+}
+
+// DynamicConstrain represents a function that generates nftables expressions
+// for constraining packet flows based on a register value.
+type DynamicConstrain func(reg uint32) []expr.Any
+
+// ImmediateIp creates a constraint that loads a specific IP address into the specified register.
+func ImmediateIp(target net.IP) DynamicConstrain {
+	return func(reg uint32) []expr.Any {
+		return []expr.Any{
+			&expr.Immediate{Register: reg, Data: target.To4()},
+		}
+	}
+}
+
+// LoadBalancing creates a constraint that implements simple load balancing
+// by generating an incremental numeric value and using it to look up an IP address
+// from an indexed set. This enables round-robin distribution across multiple endpoints.
+func LoadBalancing(indexedSet string) DynamicConstrain {
+	return func(reg uint32) []expr.Any {
+		return []expr.Any{
+			&expr.Numgen{Register: reg, Modulus: 3, Type: unix.NFT_NG_INCREMENTAL},
+			&expr.Lookup{SourceRegister: reg, SetName: indexedSet, DestRegister: reg, IsDestRegSet: true},
+		}
+	}
+}
+
+// IpEquals creates a constraint that compares the value in a register to a specific IP address.
+func IpEquals(ip net.IP) DynamicConstrain {
+	return func(reg uint32) []expr.Any {
+		return []expr.Any{
+			&expr.Cmp{Register: reg, Op: expr.CmpOpEq, Data: ip.To4()},
+		}
+	}
+}
+
+// IpLookup creates a constraint that checks if the value in a register exists in a specified set.
+func IpLookup(set string) DynamicConstrain {
+	return func(reg uint32) []expr.Any {
+		return []expr.Any{
+			&expr.Lookup{SourceRegister: reg, SetName: set},
+		}
+	}
 }

@@ -149,7 +149,7 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 
 	// Process port forwarding rules that need to be removed
 	for _, elem := range deletions {
-		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort))
+		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort))
 		if err != nil {
 			// 删除失败的情况下, 我们需要保持错误的状态等待后续再次进行移除
 			elem.State = networkingv1alpha1.PortForwardingResidual
@@ -159,7 +159,7 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 
 	// Process port forwarding rules that need to be added
 	for _, elem := range additions {
-		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort), service.Name)
+		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort), service.Name)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "failed to add forwarding")
 			if stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
@@ -177,21 +177,16 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	return r.Status().Update(ctx, newPf)
 }
 
-// removePortForwarding cleans up all active port forwarding for a [networkingv1alpha1.PortForwarding] resource
+// removePortForwarding cleans up all active port forwarding for a [networkingv1alpha1.PortForwarding] resource.
 func (r *PortForwardingReconciler) removePortForwarding(_ context.Context, instance *networkingv1alpha1.PortForwarding) error {
-	// If the current port forwarding doesn't have any configured ports, we have nothing to clean up
-	// The resource can be deleted directly
-	if len(instance.Status.ForwardedPorts) == 0 {
-		return nil
-	}
-
+	// If the current port forwarding doesn't have any configured ports, we
+	// have nothing to clean up and the resource can be deleted directly.
 	for _, elem := range instance.Status.ForwardedPorts {
-		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHost, uint16(elem.TargetPort))
+		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), []string{elem.TargetHost}, uint16(elem.TargetPort))
 		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -211,6 +206,7 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 		Complete(r)
 }
 
+// CleanUp removes all port forwarding rule created by the port forwarding controller.
 func (r *PortForwardingReconciler) CleanUp() error {
 	return r.forwarder.Close()
 }

@@ -40,3 +40,10 @@ func RuleChainName(name string) func(*nftables.Rule) bool {
 		return rule.Chain.Name == name
 	}
 }
+
+// SetName returns a predicate function that checks if a set/map has the specified name.
+func SetName(name string) func(*nftables.Set) bool {
+	return func(set *nftables.Set) bool {
+		return set.Name == name
+	}
+}
