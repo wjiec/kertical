@@ -1,0 +1,6 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: {{ include "kertical-manager.fullname" . }}-forwarding
+  labels:
+    {{- include "kertical-manager.forwarding.labels" . | nindent 4 }}

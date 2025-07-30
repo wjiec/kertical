@@ -29,6 +29,7 @@ var webhookSetups []func(mgr ctrl.Manager) error
 
 func init() {
 	webhookSetups = append(webhookSetups, networkingv1alpha1.SetupExternalProxyWebhookWithManager)
+	webhookSetups = append(webhookSetups, networkingv1alpha1.SetupPortForwardingWebhookWithManager)
 }
 
 // +kubebuilder:webhookconfiguration:mutating=true,name=mutating-webhook

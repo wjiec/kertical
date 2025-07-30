@@ -1,0 +1,76 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/component: forwarding
+    app.kubernetes.io/part-of: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: forwarding
+  namespace: system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: forwarding-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - discovery.k8s.io
+    resources:
+      - endpointslices
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.kertical.com
+    resources:
+      - portforwardings
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - networking.kertical.com
+    resources:
+      - portforwardings/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - networking.kertical.com
+    resources:
+      - portforwardings/status
+    verbs:
+      - get
+      - patch
+      - update
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    app.kubernetes.io/name: kertical
+    app.kubernetes.io/component: forwarding
+    app.kubernetes.io/part-of: kertical
+    app.kubernetes.io/managed-by: kustomize
+  name: controller-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: forwarding-role
+subjects:
+  - kind: ServiceAccount
+    name: forwarding
+    namespace: system

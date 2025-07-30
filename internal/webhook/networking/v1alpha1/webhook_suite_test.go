@@ -117,6 +117,9 @@ var _ = BeforeSuite(func() {
 	err = SetupExternalProxyWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = SetupPortForwardingWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

@@ -6,5 +6,5 @@ resources:
 
 images:
 - name: controller-manager
-  newName: wjiec/kertical-manager
-  newTag: v0.0.1
+  newName: harbor.hasakk.com/labs/kertical-manager
+  newTag: v0.1.11
