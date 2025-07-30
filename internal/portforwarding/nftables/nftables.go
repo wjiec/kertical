@@ -4,20 +4,20 @@ package nftables
 
 import (
 	"bytes"
-	"encoding/binary"
+	"math/rand"
 	"net"
-	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/google/nftables"
-	"github.com/mdlayher/netlink"
 	"github.com/pkg/errors"
 	netutils "k8s.io/utils/net"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/netlink"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/sysctl"
 )
 
@@ -36,10 +36,9 @@ func Available() (bool, error) {
 
 // NfTables implements the PortForwarding interface using nftables.
 type NfTables struct {
-	name    string
-	family  nftables.TableFamily
-	locally bool
-	once    sync.Once
+	name   string
+	family nftables.TableFamily
+	once   sync.Once
 }
 
 // New creates a new NfTables instance with the specified name and address family.
@@ -61,7 +60,7 @@ func NewIPv4(name string) *NfTables {
 func (nft *NfTables) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) (err error) {
 	nft.once.Do(func() { err = nft.start() })
 	if err != nil {
-		return errors.Wrap(err, "nftables: failed to start port forwarding")
+		return errors.Wrap(err, "failed to start port forwarding")
 	}
 
 	return nft.present(nft.buildForwarding(proto, from, target, to, comment)...)
@@ -75,27 +74,31 @@ func (nft *NfTables) RemoveForwarding(proto netutils.Protocol, from uint16, targ
 // Close removes all chains and rules created by this NfTables instance.
 // This cleans up the entire port forwarding configuration.
 func (nft *NfTables) Close() error {
-	return nft.cleanUp(nft.structure()...)
+	return nft.cleanUp(nft.structure(true)...)
 }
 
 // start initializes the basic chain structure needed for port forwarding.
 //
 // It creates all necessary tables and chains but doesn't add any forwarding rules yet.
 func (nft *NfTables) start() error {
-	return nft.present(nft.structure()...)
+	// Force cleanup of any residual rules from previous runs before starting
+	if err := nft.Close(); err != nil {
+		return errors.Wrap(err, "failed to start port forwarding")
+	}
+	return nft.present(nft.structure(false)...)
 }
 
 // structure defines the basic nftables structure required for port forwarding
-func (nft *NfTables) structure() []mutation.TableMutation {
+func (nft *NfTables) structure(forceClean bool) []mutation.TableMutation {
 	return []mutation.TableMutation{
 		// Setup NAT PREROUTING chain for incoming traffic redirection
-		nft.foundation("nat", "PREROUTING", nftables.ChainHookPrerouting),
+		nft.foundation("nat", "PREROUTING", nftables.ChainHookPrerouting, forceClean),
 
 		// Setup NAT POSTROUTING chain for outgoing traffic masquerading
-		nft.foundation("nat", "POSTROUTING", nftables.ChainHookPostrouting),
+		nft.foundation("nat", "POSTROUTING", nftables.ChainHookPostrouting, forceClean),
 
 		// Setup filter FORWARD chain with rule to allow established connections
-		nft.foundation("filter", "FORWARD", nftables.ChainHookForward,
+		nft.foundation("filter", "FORWARD", nftables.ChainHookForward, forceClean,
 			// Allow established connections through the firewall
 			mutation.Rule(
 				condition.TrackingEstablishedRelated(),
@@ -104,7 +107,7 @@ func (nft *NfTables) structure() []mutation.TableMutation {
 		),
 
 		// Setup NAT OUTPUT chain for locally generated traffic
-		nft.foundation("nat", "OUTPUT", nftables.ChainHookOutput),
+		nft.foundation("nat", "OUTPUT", nftables.ChainHookOutput, forceClean),
 	}
 }
 
@@ -118,85 +121,95 @@ func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, targe
 		return bytes.Compare(a, b)
 	})
 
-	var incomingConstrain, outgoingConstrain condition.DynamicConstrain
-	var incomingSet, outgoingMap []mutation.SetMutation
-	if len(targetIp) > 1 {
-		incomingSetName := nft.internalNameOf("set", comment)
-		incomingSet = append(incomingSet, mutation.IPv4AddrSet(incomingSetName).
-			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
-				return mutation.IPv4Addr(ip).Comment(comment)
-			})...),
-		)
-		incomingConstrain = condition.IpLookup(incomingSetName)
+	outgoing := func(suffix string) (condition.DynamicCondition, []mutation.SetMutation) {
+		if len(targetIp) == 1 {
+			return condition.ImmediateIp(targetIp[0]), nil
+		}
 
-		outgoingMapName := nft.internalNameOf("map", comment)
-		outgoingMap = append(incomingSet, mutation.IndexedIPv4AddrMap(outgoingMapName).
-			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
-				return mutation.IndexedIPv4Addr(ip, uint32(index)).Comment(comment)
-			})...))
-		outgoingConstrain = condition.LoadBalancing(outgoingMapName)
-	} else {
-		incomingConstrain = condition.IpEquals(targetIp[0])
-		outgoingConstrain = condition.ImmediateIp(targetIp[0])
+		outgoingMapId := rand.Uint32()
+		outgoingMapName := nft.internalNameOf("map", strconv.Itoa(int(from)), suffix)
+		return condition.LoadBalancing(outgoingMapId, outgoingMapName, len(target)), []mutation.SetMutation{
+			mutation.IndexedIPv4AddrMap(outgoingMapId, outgoingMapName).
+				AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
+					return mutation.IndexedIPv4Addr(ip, uint32(index))
+				})...).Comment(comment),
+		}
+	}
+
+	incoming := func(suffix string) (condition.DynamicCondition, []mutation.SetMutation) {
+		if len(targetIp) == 1 {
+			return condition.CompareEqualsIp(targetIp[0]), nil
+		}
+
+		incomingSetId := rand.Uint32()
+		incomingSetName := nft.internalNameOf("map", strconv.Itoa(int(from)), suffix)
+		return condition.LookupIp(incomingSetId, incomingSetName), []mutation.SetMutation{
+			mutation.IPv4AddrSet(incomingSetId, incomingSetName).
+				AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
+					return mutation.IPv4Addr(ip)
+				})...).Comment(comment),
+		}
 	}
 
 	var mutations []mutation.TableMutation
 
 	// Redirect incoming traffic (DNAT)
+	preroutingConstrain, preroutingMaps := outgoing("pre")
 	mutations = append(mutations, nft.scaffold("nat", "PREROUTING", nftables.ChainHookPrerouting,
 		mutation.Rule(
 			condition.TransportProtocol(proto),
 			condition.DestinationPort(from),
 			condition.Counter(),
 			condition.SetTrackingMark(uint32(from)),
-			condition.DestinationNAT(outgoingConstrain, to),
+			condition.DestinationNAT(preroutingConstrain, to),
 		).Comment(comment),
-	).AddSet(outgoingMap...))
+	).AddSet(preroutingMaps...))
 
 	// Handle return traffic with masquerading (SNAT)
+	postroutingConstrain, postroutingSets := incoming("post")
 	mutations = append(mutations, nft.scaffold("nat", "POSTROUTING", nftables.ChainHookPostrouting,
 		mutation.Rule(
-			condition.DestinationIp(incomingConstrain),
+			condition.DestinationIp(postroutingConstrain),
 			condition.TransportProtocol(proto),
 			condition.DestinationPort(to),
 			condition.TrackingMark(uint32(from)),
 			condition.Counter(),
 			condition.Masquerade(),
 		).Comment(comment),
-	).AddSet(incomingSet...))
+	).AddSet(postroutingSets...))
 
 	// Allow connections through the firewall
+	forwardConstrain, forwardSets := incoming("forward")
 	mutations = append(mutations, nft.scaffold("filter", "FORWARD", nftables.ChainHookForward,
 		mutation.Rule(
-			condition.DestinationIp(incomingConstrain),
+			condition.DestinationIp(forwardConstrain),
 			condition.TransportProtocol(proto),
 			condition.DestinationPort(to),
 			condition.TrackingMark(uint32(from)),
 			condition.Counter(),
 			condition.Accept(),
 		).Comment(comment),
-	).AddSet(incomingSet...))
+	).AddSet(forwardSets...))
 
-	if nft.locally {
-		// Optional: Handle locally generated traffic
-		mutations = append(mutations, nft.scaffold("nat", "OUTPUT", nftables.ChainHookOutput,
-			mutation.Rule(
-				condition.SourceLocalAddr(),
-				condition.TransportProtocol(proto),
-				condition.DestinationPort(from),
-				condition.Counter(),
-				condition.DestinationNAT(outgoingConstrain, to),
-			).Comment(comment),
-		).AddSet(outgoingMap...))
-	}
+	// Handle locally generated traffic
+	outputConstrain, outputMaps := outgoing("output")
+	mutations = append(mutations, nft.scaffold("nat", "OUTPUT", nftables.ChainHookOutput,
+		mutation.Rule(
+			condition.SourceLocalAddr(),
+			condition.TransportProtocol(proto),
+			condition.DestinationPort(from),
+			condition.Counter(),
+			condition.DestinationNAT(outputConstrain, to),
+		).Comment(comment),
+	).AddSet(outputMaps...))
 
 	return mutations
 }
 
 // foundation creates a complete table mutation that includes both the base chain and regular chain.
-func (nft *NfTables) foundation(table, chain string, hook *nftables.ChainHook, rules ...mutation.RuleMutation) mutation.TableMutation {
+func (nft *NfTables) foundation(table, chain string, hook *nftables.ChainHook, forceClean bool, rules ...mutation.RuleMutation) mutation.TableMutation {
 	return mutation.Table(table, hook).
-		AddChain(mutation.RegularChain(nft.nameOf(chain)).
+		AddChain(mutation.RegularChain(nft.nameOf(chain), forceClean).
 			AddRule(rules...)).
 		AddChain(mutation.BaseChain(chain).
 			AddRule(
@@ -211,7 +224,9 @@ func (nft *NfTables) foundation(table, chain string, hook *nftables.ChainHook, r
 // scaffold creates a table mutation that only adds rules to an existing regular chain.
 func (nft *NfTables) scaffold(table, chain string, hook *nftables.ChainHook, rules ...mutation.RuleMutation) mutation.TableMutation {
 	return mutation.Table(table, hook).
-		AddChain(mutation.Chain(nft.nameOf(chain)).AddRule(rules...))
+		AddChain(mutation.Chain(nft.nameOf(chain)).
+			AddRule(rules...),
+		)
 }
 
 // nameOf creates a namespaced chain name using the NfTables instance name as prefix.
@@ -220,8 +235,11 @@ func (nft *NfTables) nameOf(suffix string) string {
 }
 
 // internalNameOf creates a namespaced internal resource name (like sets or maps)
-func (nft *NfTables) internalNameOf(kind, suffix string) string {
-	return strings.ToLower("__" + kind + "_" + strings.Join([]string{nft.name, suffix}, "_"))
+func (nft *NfTables) internalNameOf(kind string, suffix ...string) string {
+	components := make([]string, 0, len(suffix)+1)
+	components = append(components, nft.name)
+	components = append(components, suffix...)
+	return strings.ToLower("__" + kind + "_" + strings.Join(components, "_"))
 }
 
 // present applies a series of mutations to ensure they are present in the current state.
@@ -234,10 +252,7 @@ func (nft *NfTables) present(mutations ...mutation.TableMutation) error {
 // cleanUp reverses a series of mutations, removing any changes they made.
 func (nft *NfTables) cleanUp(mutations ...mutation.TableMutation) error {
 	return nft.runMutation(func(m mutation.TableMutation, rd mutation.TableReader) func(mutation.TableWriter) error {
-		clean := m.CleanUp(rd)
-		return func(tw mutation.TableWriter) error {
-			return ignoreNotFound(clean(tw))
-		}
+		return m.CleanUp(rd)
 	}, mutations)
 }
 
@@ -258,68 +273,13 @@ func (nft *NfTables) runMutation(action MutationFunc, mutations []mutation.Table
 				return err
 			}
 		}
-	}
-	return nil
-}
 
-// withOpenConn creates a new nftables connection and executes the provided action function with it.
-func withOpenConn(action func(*nftables.Conn) error) error {
-	// In the nftables package, each command that needs to be sent is first stored
-	// in the messages field of the netlink connection object, and then submitted
-	// together during Flush. Therefore, we need to create a new connection each
-	// time to prevent asynchronous or concurrency issues.
-	conn, err := nftables.New()
-	if err != nil {
-		return errors.Wrap(err, "failed to open netlink connection for nftables")
-	}
-
-	if err = action(conn); err != nil {
-		return err
-	}
-	return errors.Wrap(conn.Flush(), "failed to flush commands to nftables")
-}
-
-// ignoreNotFound returns nil if the error is nil or represents a "not found" error.
-// Otherwise, returns the original error.
-func ignoreNotFound(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var opError *netlink.OpError
-	if errors.As(err, &opError) {
-		if os.IsNotExist(opError.Err) {
-			return nil
+		// flush batched commands
+		if err = rw.Flush(); err != nil {
+			return netlink.IgnoreNotFound(err)
 		}
 	}
-	return err
-}
-
-// marshalUserComment prepares a comment string for inclusion in a nftables rule.
-func marshalUserComment(comment string) []byte {
-	if len(comment) == 0 {
-		return nil
-	}
-
-	buf := make([]byte, len(comment)+3) // the length of the comment + '\x00'
-	binary.BigEndian.PutUint16(buf, uint16(len(comment)+1))
-	copy(buf[2:], comment)
-	return buf
-}
-
-// unmarshalUserComment extracts a comment string from nftables rule user data.
-//
-// Returns an empty string if the data is invalid or too short.
-func unmarshalUserComment(data []byte) string {
-	if len(data) < 2 {
-		return ""
-	}
-
-	sz := binary.BigEndian.Uint16(data[:2])
-	if len(data) < int(sz)+2 { // header + (comment + '\x00')
-		return ""
-	}
-	return string(data[2 : 1+sz])
+	return nil
 }
 
 // mapTo transforms a slice of type T to a slice of type R using the provided transform function.

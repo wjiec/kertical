@@ -163,43 +163,65 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              forwardingStatus:
-                description: ForwardedPorts represents the current status of each
-                  port forwarding
+              nodePortForwardingStatus:
+                description: |-
+                  NodePortForwardingStatus contains the port forwarding status for each node
+                  where port forwarding has been configured
                 items:
-                  description: ForwardedPort represents the status of a port forwarding
-                    configuration
+                  description: NodePortForwardingStatus represents the port forwarding
+                    status for a specific node
                   properties:
-                    protocol:
-                      description: Protocol specifies the network protocol used for
-                        port forwarding (TCP or UDP)
-                      type: string
-                    sourcePort:
-                      description: SourcePort is the port number currently being listened
-                        on
-                      format: int32
-                      type: integer
-                    state:
-                      description: State represents the current state and description
-                      type: string
-                    targetHosts:
-                      description: TargetHosts is the destination host address for
-                        the port forwarding
+                    forwardingStatus:
+                      description: ForwardedPorts represents the current status of
+                        each port forwarding
                       items:
-                        type: string
+                        description: ForwardedPort represents the status of a port
+                          forwarding configuration
+                        properties:
+                          protocol:
+                            description: Protocol specifies the network protocol used
+                              for port forwarding (TCP or UDP)
+                            type: string
+                          sourcePort:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: SourcePort is the port number currently being
+                              listened on
+                            x-kubernetes-int-or-string: true
+                          state:
+                            description: State represents the current state and description
+                            type: string
+                          targetHosts:
+                            description: TargetHosts is the destination host address
+                              for the port forwarding
+                            items:
+                              type: string
+                            type: array
+                          targetPort:
+                            description: TargetPort is the port number to which we
+                              are forwarding
+                            format: int32
+                            type: integer
+                        required:
+                        - protocol
+                        - sourcePort
+                        - state
+                        - targetHosts
+                        - targetPort
+                        type: object
                       type: array
-                    targetPort:
-                      description: TargetPort is the port number to which we are forwarding
-                      format: int32
-                      type: integer
+                    nodeName:
+                      description: NodeName is the name of the node where port forwarding
+                        is active
+                      type: string
                   required:
-                  - protocol
-                  - sourcePort
-                  - state
-                  - targetHosts
-                  - targetPort
+                  - nodeName
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - nodeName
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true

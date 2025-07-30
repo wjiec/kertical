@@ -3,7 +3,6 @@
 package mutation
 
 import (
-	"bytes"
 	"iter"
 	"net"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/derive"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation/filter"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation/predicate"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/userdata"
 )
 
 // Mutation defines an interface for creating and removing objects and rules in nftables.
@@ -86,24 +86,13 @@ type TableWriter interface {
 	DeleteChain(table, chain string) error
 
 	// AddRule creates a new rule in the specified table and chain.
-	AddRule(table, chain string, expr []expr.Any, first bool, comment string) error
+	AddRule(table, chain string, expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule from the specified table chain.
 	DeleteRule(table, chain string, handler uint64) error
 
 	// AddSet creates a new set in the specified table.
-	AddSet(table, set string, key, value nftables.SetDatatype, comment string) error
-
-	// DeleteSet removes a set from the specified table.
-	DeleteSet(table, set string) error
-
-	// AddElement adds an element to a set in the specified table.
-	//
-	// For regular sets, only key is used. For maps (dictionaries), both key and value are used.
-	AddElement(table, set string, key, value []byte, comment string) error
-
-	// DeleteElement removes an element from a set in the specified table.
-	DeleteElement(table, set string, key, value []byte, comment string) error
+	AddSet(table string, setId uint32, setName string, key, value nftables.SetDatatype, kvPairs []nftables.SetElement, comment string) error
 }
 
 // TableMutation defines an interface for creating and removing
@@ -140,7 +129,7 @@ type table struct {
 // If multiple tables with the specified hook exist, it updates all of them.
 func (t *table) Present(tr TableReader) func(TableWriter) error {
 	groups := make(map[string][]*nftables.Chain)
-	for elem := range predicate.Filter(tr.Chains(), filter.ChainHook(t.hook)) {
+	for elem := range predicate.Filter(tr.Chains(), chainMatchPredicate(t.hook)) {
 		groups[elem.Table.Name] = append(groups[elem.Table.Name], elem)
 	}
 
@@ -175,17 +164,17 @@ func (t *table) Present(tr TableReader) func(TableWriter) error {
 // It doesn't remove the tables themselves, just the chains and rules this mutation added.
 func (t *table) CleanUp(tr TableReader) func(TableWriter) error {
 	groups := make(map[string][]*nftables.Chain)
-	for elem := range predicate.Filter(tr.Chains(), filter.ChainHook(t.hook)) {
+	for elem := range predicate.Filter(tr.Chains(), chainMatchPredicate(t.hook)) {
 		groups[elem.Table.Name] = append(groups[elem.Table.Name], elem)
 	}
 
 	return func(tw TableWriter) error {
 		for name := range groups {
 			crw := &chainReadWriter{tr: tr, tw: tw, table: name, hook: t.hook}
-			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
+			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
 				return err
 			}
-			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
+			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
 				return err
 			}
 		}
@@ -203,6 +192,12 @@ func (t *table) AddChain(chains ...ChainMutation) TableMutation {
 func (t *table) AddSet(sets ...SetMutation) TableMutation {
 	t.sets = append(t.sets, sets...)
 	return t
+}
+
+// chainMatchPredicate creates a composite predicate function that checks if a chain
+// has both the specified hook and its corresponding default priority.
+func chainMatchPredicate(hook *nftables.ChainHook) func(*nftables.Chain) bool {
+	return predicate.And(filter.ChainHook(hook), filter.ChainPriority(derive.ChainPriority(hook)))
 }
 
 // mostFrequencyTable finds the table name that contains the most chains of the specified type.
@@ -252,11 +247,6 @@ func (crw *chainReadWriter) Sets() iter.Seq[*nftables.Set] {
 	return crw.tr.Sets(crw.table)
 }
 
-// Elements returns a sequence of elements in the specified set.
-func (crw *chainReadWriter) Elements(set string) iter.Seq[*nftables.SetElement] {
-	return crw.tr.Elements(crw.table, set)
-}
-
 // AddBaseChain adds a base chain to the table.
 func (crw *chainReadWriter) AddBaseChain(name string) error {
 	return crw.tw.AddChain(crw.table, name, crw.hook)
@@ -273,7 +263,7 @@ func (crw *chainReadWriter) DeleteChain(name string) error {
 }
 
 // AddRule adds a rule to a chain in the table.
-func (crw *chainReadWriter) AddRule(chain string, expr []expr.Any, first bool, comment string) error {
+func (crw *chainReadWriter) AddRule(chain string, expr []expr.Any, first bool, comment []byte) error {
 	return crw.tw.AddRule(crw.table, chain, expr, first, comment)
 }
 
@@ -283,23 +273,8 @@ func (crw *chainReadWriter) DeleteRule(chain string, handle uint64) error {
 }
 
 // AddSet creates a new set with the specified name, key/value types, and comment.
-func (crw *chainReadWriter) AddSet(name string, key, value nftables.SetDatatype, comment string) error {
-	return crw.tw.AddSet(crw.table, name, key, value, comment)
-}
-
-// DeleteSet removes a set by name.
-func (crw *chainReadWriter) DeleteSet(name string) error {
-	return crw.tw.DeleteSet(crw.table, name)
-}
-
-// AddElement adds an element to the specified set.
-func (crw *chainReadWriter) AddElement(name string, key, value []byte, comment string) error {
-	return crw.tw.AddElement(crw.table, name, key, value, comment)
-}
-
-// DeleteElement removes an element from the specified set.
-func (crw *chainReadWriter) DeleteElement(name string, key, value []byte, comment string) error {
-	return crw.tw.DeleteElement(crw.table, name, key, value, comment)
+func (crw *chainReadWriter) AddSet(id uint32, name string, key, value nftables.SetDatatype, kvPairs []nftables.SetElement, comment string) error {
+	return crw.tw.AddSet(crw.table, id, name, key, value, kvPairs, comment)
 }
 
 // ChainReader provides access to the current nftables chains and their rules.
@@ -326,7 +301,7 @@ type ChainWriter interface {
 	DeleteChain(name string) error
 
 	// AddRule creates a new rule in the specified chain with the given expressions.
-	AddRule(chain string, expr []expr.Any, first bool, comment string) error
+	AddRule(chain string, expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule identified by its chain and handle.
 	DeleteRule(chain string, handle uint64) error
@@ -389,21 +364,6 @@ func (c *chain) present(rr RuleReader, rw RuleWriter) error {
 // cleanUp removes all the rules associated with this chain.
 func (c *chain) cleanUp(rr RuleReader, rw RuleWriter) error {
 	return runCleanUp(rr, rw, c.rules...)
-}
-
-// ShouldCleanUpAtChainEmpty returns a cleanup condition function that checks if a specified chain is empty.
-//
-// The returned function, when evaluated, returns true (allowing cleanup) if the chain has no rules,
-// or false (preventing cleanup) if the chain still contains rules.
-func ShouldCleanUpAtChainEmpty(chain string) ChainRuleCleanUpConditionFunc {
-	return func(cr ChainReader) (bool, error) {
-		for elem := range cr.Rules() {
-			if elem.Chain.Name == chain {
-				return false, nil
-			}
-		}
-		return true, nil
-	}
 }
 
 // BaseChain creates a ChainMutation that ensures a base chain with
@@ -472,14 +432,15 @@ func (bc *baseChain) AddRule(rules ...RuleMutation) ChainMutation {
 //
 // Regular chains don't have hooks and are used for organization and rule grouping.
 // They can be targeted by jump or goto operations from other chains.
-func RegularChain(name string) ChainMutation {
-	return &regularChain{name: name}
+func RegularChain(name string, forceClean ...bool) ChainMutation {
+	return &regularChain{name: name, forceClean: len(forceClean) > 0 && forceClean[0]}
 }
 
 // regularChain implements the ChainMutation interface for regular chains.
 type regularChain struct {
 	chain
-	name string // The name of the regular chain
+	name       string // The name of the regular chain
+	forceClean bool
 }
 
 // Present ensures the regular chain exists and contains the required rules.
@@ -514,9 +475,11 @@ func (rc *regularChain) CleanUp(cr ChainReader) func(ChainWriter) error {
 			return err
 		}
 
-		for elem := range cr.Rules() {
-			if elem.Chain.Name == rc.name {
-				return nil
+		if !rc.forceClean {
+			for elem := range cr.Rules() {
+				if elem.Chain.Name == rc.name {
+					return nil
+				}
 			}
 		}
 		return cw.DeleteChain(rc.name)
@@ -544,7 +507,7 @@ func (crw *ruleReadWriter) Rules() iter.Seq[*nftables.Rule] {
 }
 
 // AddRule adds a rule to this specific chain.
-func (crw *ruleReadWriter) AddRule(expr []expr.Any, first bool, comment string) error {
+func (crw *ruleReadWriter) AddRule(expr []expr.Any, first bool, comment []byte) error {
 	return crw.cw.AddRule(crw.chain, expr, first, comment)
 }
 
@@ -562,7 +525,7 @@ type RuleReader interface {
 // RuleWriter provides methods to modify nftables rules.
 type RuleWriter interface {
 	// AddRule creates a new rule with the given expressions.
-	AddRule(expr []expr.Any, first bool, comment string) error
+	AddRule(expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule identified by its handle.
 	DeleteRule(handler uint64) error
@@ -608,7 +571,7 @@ func (r *rule) Present(rr RuleReader) func(RuleWriter) error {
 		}
 	}
 	// If the rule doesn't exist, we need to create a new one in the current chain.
-	return func(rw RuleWriter) error { return rw.AddRule(r.expr.Build(), r.first, r.comment) }
+	return func(rw RuleWriter) error { return rw.AddRule(r.expr.Build(), r.first, userdata.Marshal(r.comment)) }
 }
 
 // CleanUp removes any rules that match this rule's expressions.
@@ -636,28 +599,16 @@ func (r *rule) Comment(comment string) RuleMutation {
 	return r
 }
 
-// SetReader provides access to the nftables sets and their elements.
+// SetReader provides access to the nftables sets.
 type SetReader interface {
 	// Sets returns a sequence of all sets in the nftables table.
 	Sets() iter.Seq[*nftables.Set]
-
-	// Elements returns a sequence of elements in the specified set.
-	Elements(name string) iter.Seq[*nftables.SetElement]
 }
 
-// SetWriter provides methods to modify nftables sets and their elements.
+// SetWriter provides methods to modify nftables sets.
 type SetWriter interface {
-	// AddSet creates a new set with the specified name, key/value types, and comment.
-	AddSet(name string, key, value nftables.SetDatatype, comment string) error
-
-	// DeleteSet removes a set by name.
-	DeleteSet(name string) error
-
-	// AddElement adds an element to the specified set.
-	AddElement(name string, key, value []byte, comment string) error
-
-	// DeleteElement removes an element from the specified set.
-	DeleteElement(name string, key, value []byte, comment string) error
+	// AddSet creates a new set with the specified name, key/value types, pairs, and comment.
+	AddSet(id uint32, name string, key, value nftables.SetDatatype, kvPairs []nftables.SetElement, comment string) error
 }
 
 // SetMutation is a specialized Mutation for working with nftables sets.
@@ -672,46 +623,44 @@ type SetMutation interface {
 }
 
 // IPv4AddrSet creates a SetMutation for a set that stores IPv4 addresses.
-func IPv4AddrSet(name string) SetMutation {
-	return &set{name: name, key: nftables.TypeIPAddr}
+func IPv4AddrSet(id uint32, name string) SetMutation {
+	return &set{id: id, name: name, key: nftables.TypeIPAddr}
 }
 
 // IndexedIPv4AddrMap creates a SetMutation for a map that associates
 // integers with IPv4 addresses.
-func IndexedIPv4AddrMap(name string) SetMutation {
-	return &set{name: name, key: nftables.TypeInteger, value: nftables.TypeIPAddr}
+func IndexedIPv4AddrMap(id uint32, name string) SetMutation {
+	return &set{id: id, name: name, key: nftables.TypeInteger, value: nftables.TypeIPAddr}
 }
 
 // set implements the SetMutation interface for creating and cleaning sets.
 type set struct {
+	id         uint32
 	name       string
 	key, value nftables.SetDatatype
 	comment    string
-	elements   []SetElementMutation
+
+	elements []SetElementMutation
+	kvPairs  []nftables.SetElement
 }
 
 // Present ensures the set exists with all its elements.
-func (s *set) Present(sr SetReader) func(SetWriter) error {
+func (s *set) Present(_ SetReader) func(SetWriter) error {
 	return func(sw SetWriter) error {
-		if !predicate.Any(predicate.Filter(sr.Sets(), filter.SetName(s.name))) {
-			if err := sw.AddSet(s.name, s.key, s.value, s.comment); err != nil {
-				return err
-			}
+		// We need to create an anonymous and immutable set, so we first need to know all the values
+		serw := &setElementReadWriter{underlying: s}
+		if err := runPresent[SetElementReader, SetElementWriter](serw, serw, s.elements...); err != nil {
+			return err
 		}
-
-		serw := &setElementReadWriter{sr: sr, sw: sw, set: s.name}
-		return runPresent[SetElementReader, SetElementWriter](serw, serw, s.elements...)
+		return sw.AddSet(s.id, s.name, s.key, s.value, s.kvPairs, s.comment)
 	}
 }
 
-// CleanUp removes all elements in the set and then the set itself.
-func (s *set) CleanUp(sr SetReader) func(SetWriter) error {
+// CleanUp does nothing, as the set will be automatically removed
+// when rules referencing it are deleted.
+func (s *set) CleanUp(_ SetReader) func(SetWriter) error {
 	return func(sw SetWriter) error {
-		serw := &setElementReadWriter{sr: sr, sw: sw, set: s.name}
-		if err := runCleanUp[SetElementReader, SetElementWriter](serw, serw, s.elements...); err != nil {
-			return err
-		}
-		return sw.DeleteSet(s.name)
+		return nil
 	}
 }
 
@@ -729,47 +678,27 @@ func (s *set) AddElement(element ...SetElementMutation) SetMutation {
 
 // setElementReadWriter adapts SetReader and SetWriter to work with elements in a specific set.
 type setElementReadWriter struct {
-	sr  SetReader
-	sw  SetWriter
-	set string
-}
-
-// Elements returns all elements in the set.
-func (serw *setElementReadWriter) Elements() iter.Seq[*nftables.SetElement] {
-	return serw.sr.Elements(serw.set)
+	underlying *set
 }
 
 // AddElement adds an element to the set.
-func (serw *setElementReadWriter) AddElement(key, value []byte, comment string) error {
-	return serw.sw.AddElement(serw.set, key, value, comment)
+func (serw *setElementReadWriter) AddElement(key, value []byte) error {
+	serw.underlying.kvPairs = append(serw.underlying.kvPairs, nftables.SetElement{Key: key, Val: value})
+	return nil
 }
 
-// DeleteElement removes an element from the set.
-func (serw *setElementReadWriter) DeleteElement(key, value []byte, comment string) error {
-	return serw.sw.DeleteElement(serw.set, key, value, comment)
-}
-
-// SetElementReader provides access to elements in an nftables set.
-type SetElementReader interface {
-	// Elements returns a sequence of all elements in the set.
-	Elements() iter.Seq[*nftables.SetElement]
-}
+// SetElementReader for reading elements from a nftables set.
+type SetElementReader interface{}
 
 // SetElementWriter provides methods to modify elements in an nftables set.
 type SetElementWriter interface {
-	// AddElement adds a new element to the set with optional value and comment.
-	AddElement(key, value []byte, comment string) error
-
-	// DeleteElement removes an element from the set.
-	DeleteElement(key, value []byte, comment string) error
+	// AddElement adds a new element to the set with optional value.
+	AddElement(key, value []byte) error
 }
 
 // SetElementMutation is a specialized Mutation for working with nftables set elements.
 type SetElementMutation interface {
 	Mutation[SetElementReader, SetElementWriter]
-
-	// Comment sets a descriptive comment for this set element.
-	Comment(string) SetElementMutation
 }
 
 // IPv4Addr creates a SetElementMutation for an IPv4 address element.
@@ -779,46 +708,24 @@ func IPv4Addr(addr net.IP) SetElementMutation {
 
 // IndexedIPv4Addr creates a SetElementMutation for an IPv4 address with a numeric index.
 func IndexedIPv4Addr(addr net.IP, index uint32) SetElementMutation {
-	return &element{key: binaryutil.BigEndian.PutUint32(index), value: addr.To4()}
+	return &element{key: binaryutil.NativeEndian.PutUint32(index), value: addr.To4()}
 }
 
 // element implements the SetElementMutation interface for creating and cleaning set elements.
 type element struct {
 	key, value []byte
-	comment    string
 }
 
-// Present ensures a set element exists.
-//
-// If the element already exists in the set, it does nothing.
-// If the element doesn't exist, it adds it to the set.
-func (e *element) Present(ser SetElementReader) func(SetElementWriter) error {
+// Present simply adds the element to the set.
+func (e *element) Present(_ SetElementReader) func(SetElementWriter) error {
 	return func(sew SetElementWriter) error {
-		for elem := range ser.Elements() {
-			if bytes.Equal(elem.Key, e.key) && bytes.Equal(elem.Val, e.value) {
-				return nil
-			}
-		}
-		return sew.AddElement(e.key, e.value, e.comment)
+		return sew.AddElement(e.key, e.value)
 	}
 }
 
-// CleanUp removes the set element if it exists.
-func (e *element) CleanUp(ser SetElementReader) func(SetElementWriter) error {
+// CleanUp does nothing, as elements are automatically removed when the set is deleted
+func (e *element) CleanUp(_ SetElementReader) func(SetElementWriter) error {
 	return func(sew SetElementWriter) error {
-		for elem := range ser.Elements() {
-			if bytes.Equal(elem.Key, e.key) && bytes.Equal(elem.Val, e.value) {
-				if err := sew.DeleteElement(e.key, e.value, e.comment); err != nil {
-					return err
-				}
-			}
-		}
 		return nil
 	}
-}
-
-// Comment sets a descriptive comment for this set element.
-func (e *element) Comment(s string) SetElementMutation {
-	e.comment = s
-	return e
 }

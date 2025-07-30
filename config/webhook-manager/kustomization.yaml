@@ -8,4 +8,4 @@ resources:
 images:
 - name: webhook-manager
   newName: wjiec/kertical-webhook
-  newTag: v0.1.1
+  newTag: v0.1.2-dev

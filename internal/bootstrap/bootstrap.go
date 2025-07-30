@@ -108,8 +108,10 @@ func (b *Bootstrap) RunForever(ctx context.Context, options ...Option) {
 	}
 
 	// Execute all hooks added to beforeStop, passing the manager to each.
+	var waitingDone = make(chan struct{})
 	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		<-ctx.Done()
+		defer close(waitingDone)
 
 		for _, beforeStop := range b.beforeStop {
 			if err := beforeStop(ctx, mgr); err != nil {
@@ -129,4 +131,6 @@ func (b *Bootstrap) RunForever(ctx context.Context, options ...Option) {
 		b.setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+
+	<-waitingDone
 }

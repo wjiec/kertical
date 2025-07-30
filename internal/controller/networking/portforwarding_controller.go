@@ -20,12 +20,12 @@ import (
 	"context"
 	stderrors "errors"
 	"iter"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -43,10 +42,6 @@ import (
 	"github.com/wjiec/kertical/internal/kertical"
 	"github.com/wjiec/kertical/internal/portforwarding"
 	"github.com/wjiec/kertical/internal/verbosity"
-)
-
-const (
-	PortForwardingFinalizerName = "networking.kertical.com/finalizer"
 )
 
 // SetupPortForwarding sets up the PortForwarding controller with the manager
@@ -60,7 +55,8 @@ type PortForwardingReconciler struct {
 	client.Client
 	scheme *runtime.Scheme
 
-	forwarder portforwarding.PortForwarding
+	forwarder     portforwarding.PortForwarding
+	statusUpdater portforwardingutils.StatusUpdater
 }
 
 // newPortForwardingReconciler creates a new instance of PortForwardingReconciler.
@@ -68,6 +64,8 @@ func newPortForwardingReconciler(c client.Client, scheme *runtime.Scheme) *PortF
 	return &PortForwardingReconciler{
 		Client: c,
 		scheme: scheme,
+
+		statusUpdater: portforwardingutils.NewStatusUpdater(c),
 	}
 }
 
@@ -101,18 +99,12 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
-		// The object is not being deleted, so if it does not have our finalizer,
-		// then let's add the finalizer and update the object. This is equivalent
-		// to registering our finalizer.
-		if !controllerutil.ContainsFinalizer(&instance, PortForwardingFinalizerName) {
-			controllerutil.AddFinalizer(&instance, PortForwardingFinalizerName)
-			if err := r.Update(ctx, &instance); err != nil {
-				return ctrl.Result{}, err
-			}
+		if err := portforwardingutils.AddFinalizer(ctx, r.Client, &instance); err != nil {
+			return ctrl.Result{}, err
 		}
 	} else {
 		// The object is being deleted
-		if controllerutil.ContainsFinalizer(&instance, PortForwardingFinalizerName) {
+		if portforwardingutils.ContainsFinalizer(&instance) {
 			// our finalizer is present, so let's remove the port-forwarding rules first
 			if err := r.removePortForwarding(ctx, &instance); err != nil {
 				// if fail to remove the port forwarding here, return with error
@@ -121,9 +113,8 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 
 			// remove our finalizer from the list and update it.
-			controllerutil.RemoveFinalizer(&instance, PortForwardingFinalizerName)
-			if err := r.Update(ctx, &instance); err != nil {
-				return ctrl.Result{}, err
+			if requeue, err := portforwardingutils.RemoveFinalizer(ctx, r.Client, &instance); err != nil || requeue {
+				return ctrl.Result{Requeue: requeue}, err
 			}
 		}
 
@@ -147,43 +138,54 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	}
 
 	// Calculate what ports need to be added, deleted, or left unchanged
-	additions, deletions, unchanged, err := portforwardingutils.SyncForwardingPorts(instance, &service, endpointSlices)
-	if err != nil {
-		return err
-	}
+	additions, deletions, unchanged, errs := portforwardingutils.SyncForwardingPorts(instance, &service, endpointSlices)
+	log.FromContext(ctx).V(verbosity.Verbose).Info("calc portforwarding diff", "additions", additions,
+		"deletions", deletions, "unchanged", unchanged, "errs", errs)
 
-	var newForwardedPorts []networkingv1alpha1.ForwardedPort
+	newForwardedPorts := slices.Clone(errs)
 
 	// we still need to ensure they're configured correctly
 	for _, elem := range unchanged {
-		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort), service.Name)
-		if err != nil {
-			if !stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
-				log.FromContext(ctx).Error(err, "failed to add forwarding")
-				elem.State = networkingv1alpha1.PortForwardingFailed
+		if sourcePort := uint16(elem.SourcePort.IntValue()); sourcePort > 0 {
+			err = r.forwarder.AddForwarding(elem.Protocol, sourcePort, elem.TargetHosts, uint16(elem.TargetPort), service.Name)
+			if err != nil {
+				if !stderrors.Is(err, portforwarding.ErrPortAlreadyForwarded) {
+					log.FromContext(ctx).Error(err, "failed to syncing unchanged forwarding")
+					elem.State = networkingv1alpha1.PortForwardingFailed
+				}
+			} else {
+				elem.State = networkingv1alpha1.PortForwardingReady
 			}
+		} else {
+			elem.State = networkingv1alpha1.PortForwardingUnknown
 		}
+
 		newForwardedPorts = append(newForwardedPorts, elem)
 	}
 
 	// Process port forwarding rules that need to be removed
 	for _, elem := range deletions {
-		err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort))
-		if err != nil {
-			// If deletion fails, we need to maintain the error status
-			// and wait for subsequent removal attempts.
-			elem.State = networkingv1alpha1.PortForwardingResidual
-			newForwardedPorts = append(newForwardedPorts, elem)
+		if sourcePort := uint16(elem.SourcePort.IntValue()); sourcePort > 0 {
+			err = r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort.IntVal), elem.TargetHosts, uint16(elem.TargetPort))
+			if err != nil && !stderrors.Is(err, portforwarding.ErrPortNotForwarded) {
+				log.FromContext(ctx).Error(err, "failed to remove forwarding")
+				// If deletion fails, we need to maintain the error status
+				// and wait for subsequent removal attempts.
+				elem.State = networkingv1alpha1.PortForwardingResidual
+				newForwardedPorts = append(newForwardedPorts, elem)
+			}
 		}
 	}
 
 	// Process port forwarding rules that need to be added
 	for _, elem := range additions {
-		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort), service.Name)
+		err = r.forwarder.AddForwarding(elem.Protocol, uint16(elem.SourcePort.IntValue()), elem.TargetHosts, uint16(elem.TargetPort), service.Name)
 		if err != nil {
-			log.FromContext(ctx).Error(err, "failed to add forwarding")
-			if stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
+			log.FromContext(ctx).Error(err, "failed to adding additions forwarding")
+			if stderrors.Is(err, portforwarding.ErrPortAlreadyForwarded) {
 				elem.State = networkingv1alpha1.PortForwardingConflict
+			} else if stderrors.Is(err, portforwarding.ErrPortAlreadyInuse) {
+				elem.State = networkingv1alpha1.PortForwardingRejected
 			} else {
 				elem.State = networkingv1alpha1.PortForwardingFailed
 			}
@@ -192,27 +194,32 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 	}
 
 	// Update the status with the new forwarded ports list
-	newPf := instance.DeepCopy()
-	newPf.Status.ForwardedPorts = newForwardedPorts
-	meta.SetStatusCondition(&newPf.Status.Conditions, metav1.Condition{
-		Type:               networkingv1alpha1.PortForwardingConditionReady,
-		Status:             metav1.ConditionTrue,
-		ObservedGeneration: instance.Generation,
-		Reason:             "Sync",
+	slices.SortFunc(newForwardedPorts, func(a, b networkingv1alpha1.ForwardedPort) int {
+		return a.SourcePort.IntValue() - b.SourcePort.IntValue()
 	})
-	return r.Status().Update(ctx, newPf)
+	return r.statusUpdater.PatchNodeForwardedStatus(ctx, instance, kertical.NodeName(), newForwardedPorts)
 }
 
 // removePortForwarding cleans up all active port forwarding for a [networkingv1alpha1.PortForwarding] resource.
-func (r *PortForwardingReconciler) removePortForwarding(_ context.Context, instance *networkingv1alpha1.PortForwarding) error {
+func (r *PortForwardingReconciler) removePortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
 	// If the current port forwarding doesn't have any configured ports, we
 	// have nothing to clean up and the resource can be deleted directly.
-	for _, elem := range instance.Status.ForwardedPorts {
-		err := r.forwarder.RemoveForwarding(elem.Protocol, uint16(elem.SourcePort), elem.TargetHosts, uint16(elem.TargetPort))
-		if err != nil && !stderrors.Is(err, portforwarding.ErrPortNotForwarded) {
-			return err
+	for _, nodeStatus := range instance.Status.NodePortForwardingStatus {
+		if nodeStatus.NodeName == kertical.NodeName() && len(nodeStatus.ForwardedPorts) > 0 {
+			for _, elem := range nodeStatus.ForwardedPorts {
+				if sourcePort := uint16(elem.SourcePort.IntValue()); sourcePort > 0 {
+					err := r.forwarder.RemoveForwarding(elem.Protocol, sourcePort, elem.TargetHosts, uint16(elem.TargetPort))
+					if err != nil && !stderrors.Is(err, portforwarding.ErrPortNotForwarded) {
+						return err
+					}
+				}
+			}
+
+			// After removing all forwarded ports on this node, update the node status
+			return r.statusUpdater.PatchNodeForwardedStatus(ctx, instance, kertical.NodeName(), portforwardingutils.ForwardedPorts{})
 		}
 	}
+
 	return nil
 }
 
@@ -249,15 +256,28 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 		Named("networking-portforwarding").
 		For(&networkingv1alpha1.PortForwarding{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Service{}, events.Referenced[*corev1.Service](r.resolveReferencedPortForwarding)).
-		WithOptions(controller.Options{
-			MaxConcurrentReconciles: concurrentReconciles,
-		}).
+		Watches(&discoveryv1.EndpointSlice{}, events.Referenced[*discoveryv1.EndpointSlice](r.resolveIndirectPortForwarding)).
+		WithOptions(controller.Options{}).
 		Complete(r)
 }
 
 // CleanUp removes all port forwarding rule created by the port forwarding controller.
 func (r *PortForwardingReconciler) CleanUp() error {
 	return r.forwarder.Close()
+}
+
+// resolveIndirectPortForwarding maps an [*discoveryv1.EndpointSlice] to the PortForwarding resources
+// that need reconciliation when the [*discoveryv1.EndpointSlice] changes.
+func (r *PortForwardingReconciler) resolveIndirectPortForwarding(ctx context.Context, es *discoveryv1.EndpointSlice) iter.Seq[ctrl.Request] {
+	if serviceName, found := es.Labels[discoveryv1.LabelServiceName]; found {
+		return r.resolveReferencedPortForwarding(ctx, &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceName,
+				Namespace: es.Namespace,
+			},
+		})
+	}
+	return func(yield func(ctrl.Request) bool) {}
 }
 
 // resolveReferencedPortForwarding finds all PortForwarding resources in the same namespace

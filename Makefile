@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMAGE_VERSION := $(shell cat VERSION)
+IMAGE_VERSION ?= $(shell cat VERSION)
 IMAGE_REPOSITORY_BASE ?= wjiec
 CONTROLLER_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-manager:$(IMAGE_VERSION)
 WEBHOOK_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-webhook:$(IMAGE_VERSION)

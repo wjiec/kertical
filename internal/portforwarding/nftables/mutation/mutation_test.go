@@ -34,11 +34,11 @@ func TestRule(t *testing.T) {
 }
 
 func TestIPv4AddrSet(t *testing.T) {
-	assert.NotNil(t, mutation.IPv4AddrSet("targets"))
+	assert.NotNil(t, mutation.IPv4AddrSet(1, "targets"))
 }
 
 func TestIndexedIPv4AddrMap(t *testing.T) {
-	assert.NotNil(t, mutation.IndexedIPv4AddrMap("targets"))
+	assert.NotNil(t, mutation.IndexedIPv4AddrMap(1, "targets"))
 }
 
 func TestIPv4Addr(t *testing.T) {

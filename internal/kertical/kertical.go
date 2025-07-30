@@ -31,3 +31,25 @@ func GetNamespace() string {
 
 	return "kertical-system"
 }
+
+// NodeName retrieves the name of the current node from the NODE_NAME environment variable.
+//
+// This environment variable is injected by Kubernetes when running in a Pod with the downward API.
+func NodeName() string {
+	if nn := os.Getenv("NODE_NAME"); nn != "" {
+		return nn
+	}
+	return "unknown-node"
+}
+
+// NodeIP retrieves the IP address of the current node from the NODE_IP environment variable.
+//
+// If the environment variable is not set or empty, it defaults to "127.0.0.1".
+// This environment variable is typically injected by Kubernetes when running in a Pod
+// with the downward API.
+func NodeIP() string {
+	if ni := os.Getenv("NODE_IP"); len(ni) != 0 {
+		return ni
+	}
+	return "127.0.0.1"
+}

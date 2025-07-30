@@ -55,9 +55,19 @@ spec:
           image: forwarding:latest
           args:
             - --health-probe-bind-address=:8081
+          env:
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           securityContext:
-            privileged: true
-            runAsUser: 0
+            capabilities:
+              add:
+                - NET_ADMIN
           livenessProbe:
             httpGet:
               path: /healthz

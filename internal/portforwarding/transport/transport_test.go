@@ -2,6 +2,7 @@ package transport_test
 
 import (
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,40 +11,42 @@ import (
 	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
 
+const PortNumber = 23323
+
 func TestIsListening(t *testing.T) {
 	t.Run("tcp is listening", func(t *testing.T) {
-		l, err := net.Listen("tcp", ":0")
+		l, err := net.Listen("tcp", "0.0.0.0:"+strconv.Itoa(PortNumber))
 		if assert.NoError(t, err) {
 			defer func() { _ = l.Close() }()
-		}
 
-		listening, err := transport.IsListening(netutils.TCP, uint16(l.Addr().(*net.TCPAddr).Port))
-		if assert.NoError(t, err) {
-			assert.True(t, listening)
+			listening, err := transport.IsListening(netutils.TCP, PortNumber)
+			if assert.NoError(t, err) {
+				assert.True(t, listening)
+			}
 		}
 	})
 
 	t.Run("udp is listening", func(t *testing.T) {
-		l, err := net.ListenPacket("udp", ":53535")
+		l, err := net.ListenPacket("udp", ":"+strconv.Itoa(PortNumber))
 		if assert.NoError(t, err) {
 			defer func() { _ = l.Close() }()
 		}
 
-		listening, err := transport.IsListening(netutils.UDP, uint16(l.LocalAddr().(*net.UDPAddr).Port))
+		listening, err := transport.IsListening(netutils.UDP, PortNumber)
 		if assert.NoError(t, err) {
 			assert.True(t, listening)
 		}
 	})
 
 	t.Run("tcp not listening", func(t *testing.T) {
-		listening, err := transport.IsListening(netutils.TCP, 55555)
+		listening, err := transport.IsListening(netutils.TCP, PortNumber)
 		if assert.NoError(t, err) {
 			assert.False(t, listening)
 		}
 	})
 
 	t.Run("udp not listening", func(t *testing.T) {
-		listening, err := transport.IsListening(netutils.UDP, 55555)
+		listening, err := transport.IsListening(netutils.UDP, PortNumber)
 		if assert.NoError(t, err) {
 			assert.False(t, listening)
 		}

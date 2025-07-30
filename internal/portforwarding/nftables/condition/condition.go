@@ -169,46 +169,54 @@ func (sp *sourcePort) Match(in []expr.Any) int {
 }
 
 // DestinationIp returns a Condition that matches packets with the specified destination IP address.
-func DestinationIp(target DynamicConstrain) Condition {
-	return &destinationIp{
-		target: target,
-	}
+func DestinationIp(target DynamicCondition) Condition {
+	return &destinationIp{target: target, reg: 0x1}
 }
 
 // destinationIp implements the Condition interface for matching destination IP addresses.
-type destinationIp struct{ target DynamicConstrain }
+type destinationIp struct {
+	target DynamicCondition
+	reg    uint32
+}
 
 // Build creates nftables expressions to match packets with a specific destination IP.
 func (di *destinationIp) Build() []expr.Any {
 	// It loads 4 bytes from offset 0x10 in the network header (where the destination IP is located in IPv4)
 	// into register 0x1, then compares it with the specified IP address.
 	return append([]expr.Any{
-		&expr.Payload{Base: expr.PayloadBaseNetworkHeader, Offset: 0x10, Len: 0x4, DestRegister: 0x1},
-	}, di.target(0x1)...)
+		&expr.Payload{Base: expr.PayloadBaseNetworkHeader, Offset: 0x10, Len: 0x4, DestRegister: di.reg},
+	}, di.target.Build(di.reg)...)
 }
 
 // Match checks if the input expressions match this destination IP condition.
 func (di *destinationIp) Match(in []expr.Any) int {
-	return prefixMatch(di.Build(), in)
+	allBuilt, targetBuilt := di.Build(), di.target.Build(di.reg)
+	if matched := prefixMatch(allBuilt[:len(allBuilt)-len(targetBuilt)], in); matched != 0 {
+		if targetMatched := di.target.Match(di.reg, in[matched:]); targetMatched != 0 {
+			return matched + targetMatched
+		}
+	}
+	return 0
 }
 
 // DestinationNAT returns a Condition that performs destination NAT (DNAT)
 // to the specified target IP and port.
-func DestinationNAT(target DynamicConstrain, port uint16) Condition {
-	return &destinationNAT{target: target, port: port}
+func DestinationNAT(target DynamicCondition, port uint16) Condition {
+	return &destinationNAT{target: target, port: port, reg: 0x1}
 }
 
 // destinationNAT implements the Condition interface for destination network address translation.
 type destinationNAT struct {
-	target DynamicConstrain
+	target DynamicCondition
 	port   uint16
+	reg    uint32
 }
 
 // Build creates nftables expressions for destination NAT (DNAT).
 func (d *destinationNAT) Build() []expr.Any {
 	// It loads the target IPv4 address into register 0x1, the target port into register 0x2,
 	// and then applies the DNAT operation using these registers.
-	return append(d.target(0x1),
+	return append(d.target.Build(d.reg),
 		&expr.Immediate{Register: 0x2, Data: binaryutil.BigEndian.PutUint16(d.port)},
 		&expr.NAT{
 			Type: expr.NATTypeDestNAT, Family: unix.NFPROTO_IPV4,
@@ -220,7 +228,13 @@ func (d *destinationNAT) Build() []expr.Any {
 
 // Match checks if the input expressions match this destination NAT condition.
 func (d *destinationNAT) Match(in []expr.Any) int {
-	return prefixMatch(d.Build(), in)
+	allBuilt, targetBuilt := d.Build(), d.target.Build(d.reg)
+	if targetMatched := d.target.Match(d.reg, in); targetMatched == len(targetBuilt) {
+		if fixedMatched := prefixMatch(allBuilt[targetMatched:], in[targetMatched:]); fixedMatched != 0 {
+			return targetMatched + fixedMatched
+		}
+	}
+	return 0
 }
 
 // Masquerade returns a Condition that applies masquerading to outgoing packets.
@@ -391,56 +405,161 @@ func (j *jump) Match(in []expr.Any) int {
 	return prefixMatch(j.Build(), in)
 }
 
+// comparators is a registry of specialized comparison functions for different nftables expression types.
+var comparators = map[reflect.Type]func(a, b expr.Any) bool{}
+
+func init() {
+	comparators[reflect.TypeOf(&expr.Lookup{})] = lookupEquals
+}
+
+// compareExprEquals determines if two nftables expressions are equivalent.
+// It uses specialized comparison functions for certain expression types when available,
+// falling back to deep equality comparison for types without custom comparators.
+func compareExprEquals(a, b expr.Any) bool {
+	if reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+
+	if cmp := comparators[reflect.TypeOf(a)]; cmp != nil {
+		return cmp(a, b)
+	}
+	return reflect.DeepEqual(a, b)
+}
+
 // prefixMatch compares expected expressions against the beginning of actual expressions.
 //
 // Returns the number of matching expressions if the actual expressions start with
 // the expected expressions, 0 otherwise.
 func prefixMatch(expected []expr.Any, actual []expr.Any) int {
-	if el, al := len(expected), len(actual); al >= el && reflect.DeepEqual(expected, actual[:el]) {
+	if el, al := len(expected), len(actual); al >= el {
+		for i := 0; i < el; i++ {
+			if !compareExprEquals(expected[i], actual[i]) {
+				return 0
+			}
+		}
 		return el
 	}
 	return 0
 }
 
-// DynamicConstrain represents a function that generates nftables expressions
-// for constraining packet flows based on a register value.
-type DynamicConstrain func(reg uint32) []expr.Any
+// DynamicCondition represents a condition that works with a specific register
+// and can build expressions using that register as well as match existing expressions.
+type DynamicCondition interface {
+	// Build generates nftables expressions using the specified register
+	Build(reg uint32) []expr.Any
+
+	// Match checks if expressions match this condition for the given register
+	Match(reg uint32, in []expr.Any) int
+}
 
 // ImmediateIp creates a constraint that loads a specific IP address into the specified register.
-func ImmediateIp(target net.IP) DynamicConstrain {
-	return func(reg uint32) []expr.Any {
-		return []expr.Any{
-			&expr.Immediate{Register: reg, Data: target.To4()},
-		}
+func ImmediateIp(target net.IP) DynamicCondition {
+	return &immediateIp{target: target}
+}
+
+// immediateIp implements DynamicCondition for loading an IP address into a register
+type immediateIp struct {
+	target net.IP
+}
+
+// Build creates an expression that loads the target IP into the specified register
+func (i *immediateIp) Build(reg uint32) []expr.Any {
+	return []expr.Any{
+		&expr.Immediate{Register: reg, Data: i.target.To4()},
 	}
+}
+
+// Match checks if the input expressions match loading this IP address
+func (i *immediateIp) Match(reg uint32, in []expr.Any) int {
+	return prefixMatch(i.Build(reg), in)
 }
 
 // LoadBalancing creates a constraint that implements simple load balancing
 // by generating an incremental numeric value and using it to look up an IP address
 // from an indexed set. This enables round-robin distribution across multiple endpoints.
-func LoadBalancing(indexedSet string) DynamicConstrain {
-	return func(reg uint32) []expr.Any {
-		return []expr.Any{
-			&expr.Numgen{Register: reg, Modulus: 3, Type: unix.NFT_NG_INCREMENTAL},
-			&expr.Lookup{SourceRegister: reg, SetName: indexedSet, DestRegister: reg, IsDestRegSet: true},
-		}
+func LoadBalancing(setId uint32, setName string, size int) DynamicCondition {
+	return &loadBalancing{setId: setId, setName: setName, elemSize: size}
+}
+
+// loadBalancing implements DynamicCondition for distributing traffic across multiple endpoints
+type loadBalancing struct {
+	setId    uint32
+	setName  string
+	elemSize int
+}
+
+// Build creates expressions that generate a number and look up a corresponding IP address
+func (lb *loadBalancing) Build(reg uint32) []expr.Any {
+	return []expr.Any{
+		&expr.Numgen{Register: reg, Modulus: uint32(lb.elemSize), Type: unix.NFT_NG_INCREMENTAL},
+		&expr.Lookup{SourceRegister: reg, SetID: lb.setId, SetName: lb.setName, DestRegister: reg, IsDestRegSet: true},
 	}
 }
 
-// IpEquals creates a constraint that compares the value in a register to a specific IP address.
-func IpEquals(ip net.IP) DynamicConstrain {
-	return func(reg uint32) []expr.Any {
-		return []expr.Any{
-			&expr.Cmp{Register: reg, Op: expr.CmpOpEq, Data: ip.To4()},
-		}
+// Match checks if the input expressions match this load balancing
+func (lb *loadBalancing) Match(reg uint32, in []expr.Any) int {
+	return prefixMatch(lb.Build(reg), in)
+}
+
+// CompareEqualsIp creates a condition that checks if a register contains a specific IP address
+func CompareEqualsIp(target net.IP) DynamicCondition {
+	return &compareEqualsIp{target: target}
+}
+
+// compareEqualsIp implements DynamicCondition for IP equality comparison
+type compareEqualsIp struct {
+	target net.IP
+}
+
+// Build creates an expression that compares the register value with the target IP
+func (cei *compareEqualsIp) Build(reg uint32) []expr.Any {
+	return []expr.Any{
+		&expr.Cmp{Register: reg, Op: expr.CmpOpEq, Data: cei.target.To4()},
 	}
 }
 
-// IpLookup creates a constraint that checks if the value in a register exists in a specified set.
-func IpLookup(set string) DynamicConstrain {
-	return func(reg uint32) []expr.Any {
-		return []expr.Any{
-			&expr.Lookup{SourceRegister: reg, SetName: set},
+// Match checks if the input expressions match this IP comparison
+func (cei *compareEqualsIp) Match(reg uint32, in []expr.Any) int {
+	return prefixMatch(cei.Build(reg), in)
+}
+
+// LookupIp creates a condition that checks if a register's value exists in a set
+func LookupIp(setId uint32, setName string) DynamicCondition {
+	return &lookupIp{setId: setId, setName: setName}
+}
+
+// lookupIp implements DynamicCondition for IP set membership tests
+type lookupIp struct {
+	setId   uint32
+	setName string
+}
+
+// Build creates an expression that checks if the register value is in the specified set
+func (li *lookupIp) Build(reg uint32) []expr.Any {
+	return []expr.Any{
+		&expr.Lookup{SourceRegister: reg, SetID: li.setId, SetName: li.setName},
+	}
+}
+
+// Match checks if the input expressions match this set lookup operation
+func (li *lookupIp) Match(reg uint32, in []expr.Any) int {
+	return prefixMatch(li.Build(reg), in)
+}
+
+// lookupEquals compares two nftables expressions to check if they represent equivalent lookup operations.
+// This is used for matching existing rules in the nftables ruleset against desired configurations.
+//
+// Note that for set identification, either matching SetID OR matching SetName is sufficient,
+// since these are two different ways to reference the same set.
+func lookupEquals(a, b expr.Any) bool {
+	if lookup1, ok := a.(*expr.Lookup); ok {
+		if lookup2, ok := b.(*expr.Lookup); ok {
+			return lookup1.SourceRegister == lookup2.SourceRegister &&
+				lookup1.DestRegister == lookup2.DestRegister &&
+				lookup1.IsDestRegSet == lookup2.IsDestRegSet &&
+				(lookup1.SetID == lookup2.SetID || lookup1.SetName == lookup2.SetName) &&
+				lookup1.Invert == lookup2.Invert
 		}
 	}
+	return false
 }

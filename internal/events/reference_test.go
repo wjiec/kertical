@@ -13,7 +13,7 @@ import (
 )
 
 func FindPvClaim(context.Context, *corev1.PersistentVolume) iter.Seq[ctrl.Request] {
-	return nil
+	return func(yield func(ctrl.Request) bool) {}
 }
 
 func TestReferenced(t *testing.T) {

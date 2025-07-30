@@ -10,26 +10,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-networking-kertical-com-v1alpha1-portforwarding
-  failurePolicy: Fail
-  name: mportforwarding-v1alpha1.kb.io
-  rules:
-  - apiGroups:
-    - networking.kertical.com
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - portforwardings
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /mutate-networking-kertical-com-v1alpha1-externalproxy
   failurePolicy: Fail
   name: mutating-externalproxy-v1alpha1.kertical.com
@@ -43,6 +23,26 @@ webhooks:
     - UPDATE
     resources:
     - externalproxies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-networking-kertical-com-v1alpha1-portforwarding
+  failurePolicy: Fail
+  name: mutating-portforwarding-v1alpha1.kertical.com
+  rules:
+  - apiGroups:
+    - networking.kertical.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - portforwardings
   sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -78,7 +78,7 @@ webhooks:
       namespace: system
       path: /validate-networking-kertical-com-v1alpha1-portforwarding
   failurePolicy: Fail
-  name: vportforwarding-v1alpha1.kb.io
+  name: validating-portforwarding-v1alpha1.kertical.com
   rules:
   - apiGroups:
     - networking.kertical.com

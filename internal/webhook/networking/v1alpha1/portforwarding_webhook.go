@@ -42,7 +42,7 @@ func SetupPortForwardingWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-networking-kertical-com-v1alpha1-portforwarding,mutating=true,failurePolicy=fail,sideEffects=None,groups=networking.kertical.com,resources=portforwardings,verbs=create;update,versions=v1alpha1,name=mportforwarding-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-networking-kertical-com-v1alpha1-portforwarding,mutating=true,failurePolicy=fail,sideEffects=None,groups=networking.kertical.com,resources=portforwardings,verbs=create;update,versions=v1alpha1,name=mutating-portforwarding-v1alpha1.kertical.com,admissionReviewVersions=v1
 
 // PortForwardingCustomDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind PortForwarding when those are created or updated.
@@ -89,7 +89,7 @@ func (d *PortForwardingCustomDefaulter) applyDefaults(portforwarding *networking
 
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
-// +kubebuilder:webhook:path=/validate-networking-kertical-com-v1alpha1-portforwarding,mutating=false,failurePolicy=fail,sideEffects=None,groups=networking.kertical.com,resources=portforwardings,verbs=create;update,versions=v1alpha1,name=vportforwarding-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-networking-kertical-com-v1alpha1-portforwarding,mutating=false,failurePolicy=fail,sideEffects=None,groups=networking.kertical.com,resources=portforwardings,verbs=create;update,versions=v1alpha1,name=validating-portforwarding-v1alpha1.kertical.com,admissionReviewVersions=v1
 
 // PortForwardingCustomValidator struct is responsible for validating the PortForwarding resource
 // when it is created, updated, or deleted.

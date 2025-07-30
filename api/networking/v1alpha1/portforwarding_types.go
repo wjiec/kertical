@@ -70,6 +70,24 @@ type PortForwardingStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
+	// NodePortForwardingStatus contains the port forwarding status for each node
+	// where port forwarding has been configured
+	//
+	// +patchMergeKey=nodeName
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=nodeName
+	NodePortForwardingStatus []NodePortForwardingStatus `json:"nodePortForwardingStatus,omitempty"`
+}
+
+// NodePortForwardingStatus represents the port forwarding status for a specific node
+type NodePortForwardingStatus struct {
+	// NodeName is the name of the node where port forwarding is active
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	NodeName string `json:"nodeName"`
+
 	// ForwardedPorts represents the current status of each port forwarding
 	ForwardedPorts []ForwardedPort `json:"forwardingStatus,omitempty"`
 }
@@ -80,7 +98,7 @@ type ForwardedPort struct {
 	Protocol net.Protocol `json:"protocol"`
 
 	// SourcePort is the port number currently being listened on
-	SourcePort int32 `json:"sourcePort"`
+	SourcePort intstr.IntOrString `json:"sourcePort"`
 
 	// TargetHosts is the destination host address for the port forwarding
 	TargetHosts []string `json:"targetHosts"`
@@ -98,8 +116,10 @@ type PortForwardingState string
 const (
 	PortForwardingReady    PortForwardingState = "Ready"
 	PortForwardingConflict PortForwardingState = "Conflict"
+	PortForwardingRejected PortForwardingState = "Rejected"
 	PortForwardingResidual PortForwardingState = "Residual"
 	PortForwardingFailed   PortForwardingState = "Failed"
+	PortForwardingUnknown  PortForwardingState = "Unknown"
 )
 
 const (

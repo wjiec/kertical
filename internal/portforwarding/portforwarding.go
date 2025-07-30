@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrPortAlreadyInuse = errors.New("port already in use")
-	ErrPortNotForwarded = errors.New("port is not forwarded yet")
+	ErrPortAlreadyInuse     = errors.New("port already in use")
+	ErrPortNotForwarded     = errors.New("port is not forwarded yet")
+	ErrPortAlreadyForwarded = errors.New("port already forwarded")
 )
 
 // PortForwarding defines the operations for managing port forwarding rules.
@@ -71,20 +72,21 @@ type guardPortForwarding struct {
 
 // AddForwarding creates a new port forwarding rule after performing safety checks:
 func (gpf *guardPortForwarding) AddForwarding(proto netutils.Protocol, from uint16, target []string, to uint16, comment string) error {
-	listening, err := transport.IsListening(proto, from)
-	if err != nil {
-		return errors.Wrap(err, "failed to check if port in the machine is listening")
+	gpf.mu.Lock()
+	defer gpf.mu.Unlock()
+	if gpf.listens[proto].Has(from) {
+		return ErrPortAlreadyForwarded
+	}
+
+	// We check if any program is listening on this port on the host machine
+	// after confirming there are no existing forwarding configurations
+	if listening, err := transport.IsListening(proto, from); err != nil {
+		return errors.Wrap(err, "failed to check ip port in the machine is listening")
 	} else if listening {
 		return ErrPortAlreadyInuse
 	}
 
-	gpf.mu.Lock()
-	defer gpf.mu.Unlock()
-	if gpf.listens[proto].Has(from) {
-		return ErrPortAlreadyInuse
-	}
-
-	if err = gpf.underlying.AddForwarding(proto, from, target, to, comment); err != nil {
+	if err := gpf.underlying.AddForwarding(proto, from, target, to, comment); err != nil {
 		return err
 	}
 

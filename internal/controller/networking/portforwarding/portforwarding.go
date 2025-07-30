@@ -2,7 +2,6 @@ package portforwarding
 
 import (
 	"bytes"
-	"fmt"
 	"net"
 	"slices"
 
@@ -14,6 +13,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	networkingv1alpha1 "github.com/wjiec/kertical/api/networking/v1alpha1"
+	"github.com/wjiec/kertical/internal/kertical"
 )
 
 // ServiceObjectKey extracts the namespaced name of the referenced service from a [*networkingv1alpha1.PortForwarding] resource
@@ -73,19 +73,28 @@ type ForwardedPorts = []networkingv1alpha1.ForwardedPort
 //
 // Returns three lists: ports to add, ports to delete, and unchanged ports
 func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Service, endpointSlices []*discoveryv1.EndpointSlice) (
-	ForwardedPorts, ForwardedPorts, ForwardedPorts, error,
+	ForwardedPorts, ForwardedPorts, ForwardedPorts, ForwardedPorts,
 ) {
-	forwardedPorts := make(map[int32]networkingv1alpha1.ForwardedPort)
-	for _, elem := range pf.Status.ForwardedPorts {
-		forwardedPorts[elem.SourcePort] = elem
+	forwardedPorts := make(map[intstr.IntOrString]networkingv1alpha1.ForwardedPort)
+	for _, nodeStatus := range pf.Status.NodePortForwardingStatus {
+		if nodeStatus.NodeName == kertical.NodeName() {
+			for _, elem := range nodeStatus.ForwardedPorts {
+				forwardedPorts[elem.SourcePort] = elem
+			}
+			break
+		}
 	}
 
-	var additions, deletions, unchanged ForwardedPorts
+	var additions, deletions, unchanged, errors ForwardedPorts
 	for _, forwarding := range pf.Spec.Ports {
 		// Find the service port that matches the forwarding target
 		servicePort, found := FindServicePort(svc, forwarding.Target, endpointSlices)
 		if !found {
-			return nil, nil, nil, fmt.Errorf("port %q not found in the service %q", forwarding.Target, svc.Name)
+			errors = append(errors, networkingv1alpha1.ForwardedPort{
+				SourcePort: forwarding.Target,
+				State:      networkingv1alpha1.PortForwardingFailed,
+			})
+			continue
 		}
 
 		// Determine target hosts based on service type
@@ -108,15 +117,16 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 		})
 
 		// If no specific host port is specified, use the service port as the source port
-		sourcePort := servicePort.Port
+		sourcePort := intstr.FromInt32(servicePort.Port)
 		if forwarding.HostPort != nil {
-			sourcePort = *forwarding.HostPort
+			sourcePort = intstr.FromInt32(*forwarding.HostPort)
 		}
 
 		protocol := netutils.Protocol(servicePort.Protocol)
-		if forwardPort, forwarded := forwardedPorts[sourcePort]; forwarded {
+		if forwardPort, exists := forwardedPorts[sourcePort]; exists {
 			// If this port is already forwarded, check if we need to recreate the rule
-			if forwardPort.Protocol != protocol || forwardPort.SourcePort != sourcePort {
+			sameTargetHosts := slices.Equal(targetHosts, forwardPort.TargetHosts)
+			if forwardPort.Protocol != protocol || forwardPort.SourcePort != sourcePort || !sameTargetHosts {
 				// We need to delete the old forwarding rule and add a new one
 				deletions = append(deletions, forwardPort)
 				additions = append(additions, networkingv1alpha1.ForwardedPort{
@@ -130,6 +140,8 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 				// The current forwarding rule hasn't changed, no action needed
 				unchanged = append(unchanged, forwardPort)
 			}
+
+			delete(forwardedPorts, sourcePort)
 		} else {
 			// If the forwarding rule doesn't exist, we need to create a new one
 			additions = append(additions, networkingv1alpha1.ForwardedPort{
@@ -142,5 +154,8 @@ func SyncForwardingPorts(pf *networkingv1alpha1.PortForwarding, svc *corev1.Serv
 		}
 	}
 
-	return additions, deletions, unchanged, nil
+	for _, forwardedPort := range forwardedPorts {
+		deletions = append(deletions, forwardedPort)
+	}
+	return additions, deletions, unchanged, errors
 }

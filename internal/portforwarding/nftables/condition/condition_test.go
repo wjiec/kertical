@@ -121,16 +121,16 @@ func TestSourcePort(t *testing.T) {
 }
 
 func TestDestinationIp(t *testing.T) {
-	assert.NotNil(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))))
+	assert.NotNil(t, condition.DestinationIp(condition.CompareEqualsIp(net.ParseIP("172.16.1.1"))))
 
 	t.Run("build", func(t *testing.T) {
-		assert.NotEmpty(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Build())
+		assert.NotEmpty(t, condition.DestinationIp(condition.CompareEqualsIp(net.ParseIP("172.16.1.1"))).Build())
 	})
 
 	t.Run("match", func(t *testing.T) {
-		a := condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Build()
-		assert.Zero(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.2"))).Match(a))
-		assert.NotZero(t, condition.DestinationIp(condition.IpEquals(net.ParseIP("172.16.1.1"))).Match(a))
+		a := condition.DestinationIp(condition.CompareEqualsIp(net.ParseIP("172.16.1.1"))).Build()
+		assert.Zero(t, condition.DestinationIp(condition.CompareEqualsIp(net.ParseIP("172.16.1.2"))).Match(a))
+		assert.NotZero(t, condition.DestinationIp(condition.CompareEqualsIp(net.ParseIP("172.16.1.1"))).Match(a))
 	})
 }
 

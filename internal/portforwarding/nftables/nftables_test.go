@@ -1,22 +1,16 @@
 //go:build linux
 
-package nftables
+package nftables_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/wjiec/kertical/internal/portforwarding/nftables"
 )
 
 func TestAvailable(t *testing.T) {
-	_, err := Available()
+	_, err := nftables.Available()
 	assert.NoError(t, err)
-}
-
-func Fuzz_marshalUserComment(f *testing.F) {
-	f.Add("string")
-	f.Fuzz(func(t *testing.T, comment string) {
-		data := marshalUserComment(comment)
-		assert.Equal(t, comment, unmarshalUserComment(data))
-	})
 }

@@ -28,6 +28,8 @@ type readWriter struct {
 	chains []*nftables.Chain
 	rules  []*nftables.Rule
 	sets   []*setWithElement
+
+	conn *nftables.Conn
 }
 
 // newReadWriter creates a new readWriter instance and populates it with
@@ -96,7 +98,7 @@ func (rw *readWriter) Elements(table string, set string) iter.Seq[*nftables.SetE
 
 // AddTable creates a new table with the specified name.
 func (rw *readWriter) AddTable(name string) error {
-	err := withOpenConn(func(conn *nftables.Conn) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
 		conn.AddTable(&nftables.Table{
 			Name:   name,
 			Family: rw.family,
@@ -108,8 +110,14 @@ func (rw *readWriter) AddTable(name string) error {
 
 // DeleteTable removes a table from the specified name.
 func (rw *readWriter) DeleteTable(name string) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		conn.DelTable(&nftables.Table{Name: name, Family: rw.family})
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
+		for i, table := range rw.tables {
+			if table.Name == name {
+				rw.tables = append(rw.tables[:i], rw.tables[i+1:]...)
+				conn.DelTable(&nftables.Table{Name: name, Family: rw.family})
+				break
+			}
+		}
 		return nil
 	})
 	return errors.Wrapf(err, "failed to delete table: %q", name)
@@ -119,7 +127,7 @@ func (rw *readWriter) DeleteTable(name string) error {
 //
 // If hook is non-nil, it creates a base chain, otherwise a regular chain.
 func (rw *readWriter) AddChain(table string, name string, hook *nftables.ChainHook) error {
-	err := withOpenConn(func(conn *nftables.Conn) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
 		chain := &nftables.Chain{
 			Name:    name,
 			Table:   &nftables.Table{Name: table, Family: rw.family},
@@ -138,20 +146,26 @@ func (rw *readWriter) AddChain(table string, name string, hook *nftables.ChainHo
 }
 
 // DeleteChain removes a chain from the specified table.
-func (rw *readWriter) DeleteChain(table string, name string) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		conn.DelChain(&nftables.Chain{
-			Name:  name,
-			Table: &nftables.Table{Name: table, Family: rw.family},
-		})
+func (rw *readWriter) DeleteChain(table string, chain string) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
+		for i, elem := range rw.chains {
+			if elem.Table.Name == table && elem.Name == chain {
+				rw.chains = append(rw.chains[:i], rw.chains[i+1:]...)
+				conn.DelChain(&nftables.Chain{
+					Name:  chain,
+					Table: &nftables.Table{Name: table, Family: rw.family},
+				})
+				break
+			}
+		}
 		return nil
 	})
-	return errors.Wrapf(err, "failed to delete chain: %q", name)
+	return errors.Wrapf(err, "failed to delete chain: %q", chain)
 }
 
 // AddRule creates a new rule in the specified table and chain with the given expressions.
-func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first bool, comment string) error {
-	err := withOpenConn(func(conn *nftables.Conn) error {
+func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first bool, comment []byte) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
 		var addRule = conn.AddRule
 		if first {
 			addRule = conn.InsertRule
@@ -161,7 +175,7 @@ func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first
 			Table:    &nftables.Table{Name: table, Family: rw.family},
 			Chain:    &nftables.Chain{Name: chain},
 			Exprs:    expr,
-			UserData: marshalUserComment(comment),
+			UserData: comment,
 		})
 		return nil
 	})
@@ -169,93 +183,44 @@ func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first
 }
 
 // DeleteRule removes a rule identified by its handle from the specified table and chain.
-func (rw *readWriter) DeleteRule(table string, chain string, handler uint64) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		return conn.DelRule(&nftables.Rule{
-			Table:  &nftables.Table{Name: table, Family: rw.family},
-			Chain:  &nftables.Chain{Name: chain},
-			Handle: handler,
-		})
+func (rw *readWriter) DeleteRule(table string, chain string, handle uint64) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
+		for i, rule := range rw.rules {
+			if rule.Handle == handle {
+				rw.rules = append(rw.rules[:i], rw.rules[i+1:]...)
+				return conn.DelRule(&nftables.Rule{
+					Table:  &nftables.Table{Name: table, Family: rw.family},
+					Chain:  &nftables.Chain{Name: chain},
+					Handle: handle,
+				})
+			}
+		}
+		return nil
 	})
 	return errors.Wrapf(err, "failed to delete rule in table %q chain %q", table, chain)
 }
 
 // AddSet creates a new set in the specified table.
-func (rw *readWriter) AddSet(table, set string, key, value nftables.SetDatatype, comment string) error {
-	err := withOpenConn(func(conn *nftables.Conn) error {
+func (rw *readWriter) AddSet(table string, setId uint32, setName string, key, value nftables.SetDatatype, kvPairs []nftables.SetElement, comment string) error {
+	err := rw.withOpenConn(func(conn *nftables.Conn) error {
 		return conn.AddSet(&nftables.Set{
-			Table:        &nftables.Table{Name: table, Family: rw.family},
-			Name:         set,
-			IsMap:        len(value.Name) != 0,
-			KeyType:      key,
-			DataType:     value,
-			KeyByteOrder: nil,
-			Comment:      comment,
-		}, nil)
+			Table:     &nftables.Table{Name: table, Family: rw.family},
+			ID:        setId,
+			Name:      setName,
+			IsMap:     len(value.Name) != 0,
+			KeyType:   key,
+			DataType:  value,
+			Anonymous: true,
+			Constant:  true,
+			Comment:   comment,
+		}, kvPairs)
 	})
-	return errors.Wrapf(err, "failed to add set %q in table %q", set, table)
-}
-
-// DeleteSet removes a set from the specified table.
-func (rw *readWriter) DeleteSet(table, set string) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		conn.DelSet(&nftables.Set{
-			Table: &nftables.Table{Name: table, Family: rw.family},
-			Name:  set,
-		})
-		return nil
-	})
-	return errors.Wrapf(err, "failed to delete set %q in table %q", set, table)
-}
-
-// AddElement adds an element to a set in the specified table.
-//
-// For regular sets, only key is used. For maps (dictionaries), both key and value are used.
-func (rw *readWriter) AddElement(table, set string, key, value []byte, comment string) error {
-	err := withOpenConn(func(conn *nftables.Conn) error {
-		return conn.SetAddElements(&nftables.Set{
-			Table: &nftables.Table{Name: table, Family: rw.family},
-			Name:  set,
-		}, []nftables.SetElement{
-			{
-				Key:     key,
-				Val:     value,
-				Comment: comment,
-			},
-		})
-	})
-	return errors.Wrapf(err, "failed to add element in table %q set %q", table, set)
-}
-
-// DeleteElement removes an element from a set in the specified table.
-func (rw *readWriter) DeleteElement(table, set string, key, value []byte, comment string) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		return conn.SetDeleteElements(&nftables.Set{
-			Table: &nftables.Table{Name: table, Family: rw.family},
-			Name:  set,
-		}, []nftables.SetElement{
-			{
-				Key:     key,
-				Val:     value,
-				Comment: comment,
-			},
-		})
-	})
-	return errors.Wrapf(err, "failed to delete element in table %q set %q", table, set)
-}
-
-// withOpenConnAndRefresh performs an action with an open nftables connection
-// and refreshes the chains, sets and rules afterward.
-func (rw *readWriter) withOpenConnAndRefresh(action func(*nftables.Conn) error) error {
-	if err := withOpenConn(action); err != nil {
-		return err
-	}
-	return rw.refresh()
+	return errors.Wrapf(err, "failed to add anonymous set in table %q", table)
 }
 
 // refresh updates the internal state by fetching the current chains, sets and rules from nftables.
 func (rw *readWriter) refresh() error {
-	return withOpenConn(func(conn *nftables.Conn) (err error) {
+	return rw.withOpenConn(func(conn *nftables.Conn) (err error) {
 		if rw.tables, err = conn.ListTablesOfFamily(rw.family); err != nil {
 			return err
 		}
@@ -295,4 +260,26 @@ func (rw *readWriter) refresh() error {
 
 		return
 	})
+}
+
+// withOpenConn creates a new nftables connection and executes the provided action function with it.
+func (rw *readWriter) withOpenConn(action func(*nftables.Conn) error) (err error) {
+	// In the nftables package, each command that needs to be sent is first stored
+	// in the messages field of the netlink connection object, and then submitted
+	// together during Flush. Therefore, we need to create a new connection each
+	// time to prevent asynchronous or concurrency issues.
+	if rw.conn == nil {
+		rw.conn, err = nftables.New()
+		if err != nil {
+			return errors.Wrap(err, "failed to open netlink connection for nftables")
+		}
+	}
+
+	return action(rw.conn)
+}
+
+// Flush sends all buffered commands in a single batch to nftables.
+func (rw *readWriter) Flush() error {
+	defer func() { rw.conn = nil }()
+	return errors.Wrap(rw.conn.Flush(), "failed to flush commands to nftables")
 }
