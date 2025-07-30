@@ -249,6 +249,7 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 		Named("networking-portforwarding").
 		For(&networkingv1alpha1.PortForwarding{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Service{}, events.Referenced[*corev1.Service](r.resolveReferencedPortForwarding)).
+		Watches(&discoveryv1.EndpointSlice{}, events.Referenced[*discoveryv1.EndpointSlice](r.resolveIndirectPortForwarding)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrentReconciles,
 		}).
@@ -258,6 +259,20 @@ func (r *PortForwardingReconciler) SetupWithManager(mgr ctrl.Manager) (err error
 // CleanUp removes all port forwarding rule created by the port forwarding controller.
 func (r *PortForwardingReconciler) CleanUp() error {
 	return r.forwarder.Close()
+}
+
+// resolveIndirectPortForwarding maps an [*discoveryv1.EndpointSlice] to the PortForwarding resources
+// that need reconciliation when the [*discoveryv1.EndpointSlice] changes.
+func (r *PortForwardingReconciler) resolveIndirectPortForwarding(ctx context.Context, es *discoveryv1.EndpointSlice) iter.Seq[ctrl.Request] {
+	if serviceName, found := es.Labels[discoveryv1.LabelServiceName]; found {
+		return r.resolveReferencedPortForwarding(ctx, &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceName,
+				Namespace: es.Namespace,
+			},
+		})
+	}
+	return func(yield func(ctrl.Request) bool) {}
 }
 
 // resolveReferencedPortForwarding finds all PortForwarding resources in the same namespace

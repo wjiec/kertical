@@ -65,3 +65,17 @@ func First[T any](seq iter.Seq[T], predicate func(T) bool) (v T, _ iter.Seq[T]) 
 	stop()
 	return v, func(func(T) bool) {}
 }
+
+// And creates a composite predicate function that performs a logical AND operation
+// on all the provided predicates. It returns a new predicate that evaluates to true
+// only if all the component predicates evaluate to true.
+func And[T any](predicates ...func(T) bool) func(T) bool {
+	return func(t T) bool {
+		for _, predicate := range predicates {
+			if !predicate(t) {
+				return false
+			}
+		}
+		return true
+	}
+}

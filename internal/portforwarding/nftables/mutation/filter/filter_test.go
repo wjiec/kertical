@@ -11,6 +11,7 @@ import (
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation/filter"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/userdata"
 )
 
 func TestChainName(t *testing.T) {
@@ -39,5 +40,12 @@ func TestRuleChainName(t *testing.T) {
 	if f := filter.RuleChainName("foo"); assert.NotNil(t, f) {
 		assert.True(t, f(&nftables.Rule{Chain: &nftables.Chain{Name: "foo"}}))
 		assert.False(t, f(&nftables.Rule{Chain: &nftables.Chain{Name: "bar"}}))
+	}
+}
+
+func TestRuleComment(t *testing.T) {
+	if f := filter.RuleComment(userdata.Marshal("foo")); assert.NotNil(t, f) {
+		assert.True(t, f(&nftables.Rule{UserData: userdata.Marshal("foo")}))
+		assert.False(t, f(&nftables.Rule{UserData: userdata.Marshal("bar")}))
 	}
 }

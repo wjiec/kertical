@@ -16,6 +16,7 @@ import (
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/derive"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation/filter"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation/predicate"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/userdata"
 )
 
 // Mutation defines an interface for creating and removing objects and rules in nftables.
@@ -86,7 +87,7 @@ type TableWriter interface {
 	DeleteChain(table, chain string) error
 
 	// AddRule creates a new rule in the specified table and chain.
-	AddRule(table, chain string, expr []expr.Any, first bool, comment string) error
+	AddRule(table, chain string, expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule from the specified table chain.
 	DeleteRule(table, chain string, handler uint64) error
@@ -182,10 +183,10 @@ func (t *table) CleanUp(tr TableReader) func(TableWriter) error {
 	return func(tw TableWriter) error {
 		for name := range groups {
 			crw := &chainReadWriter{tr: tr, tw: tw, table: name, hook: t.hook}
-			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
+			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
 				return err
 			}
-			if err := runCleanUp[ChainReader, ChainWriter](crw, crw, t.chains...); err != nil {
+			if err := runCleanUp[SetReader, SetWriter](crw, crw, t.sets...); err != nil {
 				return err
 			}
 		}
@@ -273,7 +274,7 @@ func (crw *chainReadWriter) DeleteChain(name string) error {
 }
 
 // AddRule adds a rule to a chain in the table.
-func (crw *chainReadWriter) AddRule(chain string, expr []expr.Any, first bool, comment string) error {
+func (crw *chainReadWriter) AddRule(chain string, expr []expr.Any, first bool, comment []byte) error {
 	return crw.tw.AddRule(crw.table, chain, expr, first, comment)
 }
 
@@ -326,7 +327,7 @@ type ChainWriter interface {
 	DeleteChain(name string) error
 
 	// AddRule creates a new rule in the specified chain with the given expressions.
-	AddRule(chain string, expr []expr.Any, first bool, comment string) error
+	AddRule(chain string, expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule identified by its chain and handle.
 	DeleteRule(chain string, handle uint64) error
@@ -389,21 +390,6 @@ func (c *chain) present(rr RuleReader, rw RuleWriter) error {
 // cleanUp removes all the rules associated with this chain.
 func (c *chain) cleanUp(rr RuleReader, rw RuleWriter) error {
 	return runCleanUp(rr, rw, c.rules...)
-}
-
-// ShouldCleanUpAtChainEmpty returns a cleanup condition function that checks if a specified chain is empty.
-//
-// The returned function, when evaluated, returns true (allowing cleanup) if the chain has no rules,
-// or false (preventing cleanup) if the chain still contains rules.
-func ShouldCleanUpAtChainEmpty(chain string) ChainRuleCleanUpConditionFunc {
-	return func(cr ChainReader) (bool, error) {
-		for elem := range cr.Rules() {
-			if elem.Chain.Name == chain {
-				return false, nil
-			}
-		}
-		return true, nil
-	}
 }
 
 // BaseChain creates a ChainMutation that ensures a base chain with
@@ -544,7 +530,7 @@ func (crw *ruleReadWriter) Rules() iter.Seq[*nftables.Rule] {
 }
 
 // AddRule adds a rule to this specific chain.
-func (crw *ruleReadWriter) AddRule(expr []expr.Any, first bool, comment string) error {
+func (crw *ruleReadWriter) AddRule(expr []expr.Any, first bool, comment []byte) error {
 	return crw.cw.AddRule(crw.chain, expr, first, comment)
 }
 
@@ -562,7 +548,7 @@ type RuleReader interface {
 // RuleWriter provides methods to modify nftables rules.
 type RuleWriter interface {
 	// AddRule creates a new rule with the given expressions.
-	AddRule(expr []expr.Any, first bool, comment string) error
+	AddRule(expr []expr.Any, first bool, comment []byte) error
 
 	// DeleteRule removes a rule identified by its handle.
 	DeleteRule(handler uint64) error
@@ -597,7 +583,9 @@ type rule struct {
 // If multiple matching rules exist, it keeps the first one and deletes the duplicates.
 // If no matching rule exists, it adds a new one.
 func (r *rule) Present(rr RuleReader) func(RuleWriter) error {
-	if found, rest := predicate.First(rr.Rules(), filter.RuleExpr(r.expr)); found != nil {
+	ruleUserData := userdata.Marshal(r.comment)
+	rulePredicate := predicate.And(filter.RuleExpr(r.expr), filter.RuleComment(ruleUserData))
+	if found, rest := predicate.First(rr.Rules(), rulePredicate); found != nil {
 		return func(rw RuleWriter) error {
 			for elem := range rest {
 				if err := rw.DeleteRule(elem.Handle); err != nil {
@@ -608,7 +596,7 @@ func (r *rule) Present(rr RuleReader) func(RuleWriter) error {
 		}
 	}
 	// If the rule doesn't exist, we need to create a new one in the current chain.
-	return func(rw RuleWriter) error { return rw.AddRule(r.expr.Build(), r.first, r.comment) }
+	return func(rw RuleWriter) error { return rw.AddRule(r.expr.Build(), r.first, ruleUserData) }
 }
 
 // CleanUp removes any rules that match this rule's expressions.

@@ -4,20 +4,19 @@ package nftables
 
 import (
 	"bytes"
-	"encoding/binary"
 	"net"
-	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/google/nftables"
-	"github.com/mdlayher/netlink"
 	"github.com/pkg/errors"
 	netutils "k8s.io/utils/net"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/mutation"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/netlink"
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/sysctl"
 )
 
@@ -121,19 +120,19 @@ func (nft *NfTables) buildForwarding(proto netutils.Protocol, from uint16, targe
 	var incomingConstrain, outgoingConstrain condition.DynamicConstrain
 	var incomingSet, outgoingMap []mutation.SetMutation
 	if len(targetIp) > 1 {
-		incomingSetName := nft.internalNameOf("set", comment)
+		incomingSetName := nft.internalNameOf("set", from, to)
 		incomingSet = append(incomingSet, mutation.IPv4AddrSet(incomingSetName).
 			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
-				return mutation.IPv4Addr(ip).Comment(comment)
-			})...),
+				return mutation.IPv4Addr(ip)
+			})...).Comment(comment),
 		)
 		incomingConstrain = condition.IpLookup(incomingSetName)
 
-		outgoingMapName := nft.internalNameOf("map", comment)
+		outgoingMapName := nft.internalNameOf("map", from, to)
 		outgoingMap = append(incomingSet, mutation.IndexedIPv4AddrMap(outgoingMapName).
 			AddElement(mapTo(targetIp, func(ip net.IP, index int) mutation.SetElementMutation {
-				return mutation.IndexedIPv4Addr(ip, uint32(index)).Comment(comment)
-			})...))
+				return mutation.IndexedIPv4Addr(ip, uint32(index))
+			})...).Comment(comment))
 		outgoingConstrain = condition.LoadBalancing(outgoingMapName)
 	} else {
 		incomingConstrain = condition.IpEquals(targetIp[0])
@@ -220,8 +219,11 @@ func (nft *NfTables) nameOf(suffix string) string {
 }
 
 // internalNameOf creates a namespaced internal resource name (like sets or maps)
-func (nft *NfTables) internalNameOf(kind, suffix string) string {
-	return strings.ToLower("__" + kind + "_" + strings.Join([]string{nft.name, suffix}, "_"))
+func (nft *NfTables) internalNameOf(kind string, suffix ...uint16) string {
+	components := make([]string, 0, len(suffix)+1)
+	components = append(components, nft.name)
+	components = append(components, mapTo(suffix, func(x uint16, _ int) string { return strconv.Itoa(int(x)) })...)
+	return strings.ToLower("__" + kind + "_" + strings.Join(components, "_"))
 }
 
 // present applies a series of mutations to ensure they are present in the current state.
@@ -236,7 +238,7 @@ func (nft *NfTables) cleanUp(mutations ...mutation.TableMutation) error {
 	return nft.runMutation(func(m mutation.TableMutation, rd mutation.TableReader) func(mutation.TableWriter) error {
 		clean := m.CleanUp(rd)
 		return func(tw mutation.TableWriter) error {
-			return ignoreNotFound(clean(tw))
+			return netlink.IgnoreNotFound(clean(tw))
 		}
 	}, mutations)
 }
@@ -277,49 +279,6 @@ func withOpenConn(action func(*nftables.Conn) error) error {
 		return err
 	}
 	return errors.Wrap(conn.Flush(), "failed to flush commands to nftables")
-}
-
-// ignoreNotFound returns nil if the error is nil or represents a "not found" error.
-// Otherwise, returns the original error.
-func ignoreNotFound(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var opError *netlink.OpError
-	if errors.As(err, &opError) {
-		if os.IsNotExist(opError.Err) {
-			return nil
-		}
-	}
-	return err
-}
-
-// marshalUserComment prepares a comment string for inclusion in a nftables rule.
-func marshalUserComment(comment string) []byte {
-	if len(comment) == 0 {
-		return nil
-	}
-
-	buf := make([]byte, len(comment)+3) // the length of the comment + '\x00'
-	binary.BigEndian.PutUint16(buf, uint16(len(comment)+1))
-	copy(buf[2:], comment)
-	return buf
-}
-
-// unmarshalUserComment extracts a comment string from nftables rule user data.
-//
-// Returns an empty string if the data is invalid or too short.
-func unmarshalUserComment(data []byte) string {
-	if len(data) < 2 {
-		return ""
-	}
-
-	sz := binary.BigEndian.Uint16(data[:2])
-	if len(data) < int(sz)+2 { // header + (comment + '\x00')
-		return ""
-	}
-	return string(data[2 : 1+sz])
 }
 
 // mapTo transforms a slice of type T to a slice of type R using the provided transform function.

@@ -3,6 +3,8 @@
 package filter
 
 import (
+	"bytes"
+
 	"github.com/google/nftables"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/condition"
@@ -30,6 +32,14 @@ func ChainHook(hook *nftables.ChainHook) func(*nftables.Chain) bool {
 func RuleExpr(cond condition.Condition) func(*nftables.Rule) bool {
 	return func(rule *nftables.Rule) bool {
 		return cond.Match(rule.Exprs) == len(rule.Exprs)
+	}
+}
+
+// RuleComment returns a predicate function that checks if a rule's user data
+// matches the provided byte slice exactly.
+func RuleComment(comment []byte) func(*nftables.Rule) bool {
+	return func(rule *nftables.Rule) bool {
+		return bytes.Equal(rule.UserData, comment)
 	}
 }
 

@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMAGE_VERSION := $(shell cat VERSION)
+IMAGE_VERSION ?= $(shell cat VERSION)
 IMAGE_REPOSITORY_BASE ?= wjiec
 CONTROLLER_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-manager:$(IMAGE_VERSION)
 WEBHOOK_MANAGER_IMG ?= $(IMAGE_REPOSITORY_BASE)/kertical-webhook:$(IMAGE_VERSION)
@@ -117,16 +117,16 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the controller-manager.
-	$(CONTAINER_TOOL) build -t $(CONTROLLER_MANAGER_IMG) -f build/docker/controller-manager/Dockerfile .
-	$(CONTAINER_TOOL) build -t $(WEBHOOK_MANAGER_IMG) -f build/docker/webhook-manager/Dockerfile .
-	$(CONTAINER_TOOL) build -t $(GENCERT_IMG) -f build/docker/gencert/Dockerfile .
+	#$(CONTAINER_TOOL) build -t $(CONTROLLER_MANAGER_IMG) -f build/docker/controller-manager/Dockerfile .
+	#$(CONTAINER_TOOL) build -t $(WEBHOOK_MANAGER_IMG) -f build/docker/webhook-manager/Dockerfile .
+	#$(CONTAINER_TOOL) build -t $(GENCERT_IMG) -f build/docker/gencert/Dockerfile .
 	$(CONTAINER_TOOL) build -t $(FORWARDING_IMG) -f build/docker/forwarding/Dockerfile .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push $(CONTROLLER_MANAGER_IMG)
-	$(CONTAINER_TOOL) push $(WEBHOOK_MANAGER_IMG)
-	$(CONTAINER_TOOL) push $(GENCERT_IMG)
+	#$(CONTAINER_TOOL) push $(CONTROLLER_MANAGER_IMG)
+	#$(CONTAINER_TOOL) push $(WEBHOOK_MANAGER_IMG)
+	#$(CONTAINER_TOOL) push $(GENCERT_IMG)
 	$(CONTAINER_TOOL) push $(FORWARDING_IMG)
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple

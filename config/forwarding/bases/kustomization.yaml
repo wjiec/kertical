@@ -7,5 +7,5 @@ resources:
 
 images:
 - name: forwarding
-  newName: wjiec/kertical-forwarding
-  newTag: v0.1.1
+  newName: harbor.hasakk.com/labs/kertical-forwarding
+  newTag: v0.1.11

@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/wjiec/kertical/internal/portforwarding/nftables/derive"
+	"github.com/wjiec/kertical/internal/portforwarding/nftables/netlink"
 )
 
 // setWithElement represents a nftables set along with its elements.
@@ -138,19 +139,19 @@ func (rw *readWriter) AddChain(table string, name string, hook *nftables.ChainHo
 }
 
 // DeleteChain removes a chain from the specified table.
-func (rw *readWriter) DeleteChain(table string, name string) error {
+func (rw *readWriter) DeleteChain(table string, chain string) error {
 	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
 		conn.DelChain(&nftables.Chain{
-			Name:  name,
+			Name:  chain,
 			Table: &nftables.Table{Name: table, Family: rw.family},
 		})
 		return nil
 	})
-	return errors.Wrapf(err, "failed to delete chain: %q", name)
+	return errors.Wrapf(err, "failed to delete chain: %q", chain)
 }
 
 // AddRule creates a new rule in the specified table and chain with the given expressions.
-func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first bool, comment string) error {
+func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first bool, comment []byte) error {
 	err := withOpenConn(func(conn *nftables.Conn) error {
 		var addRule = conn.AddRule
 		if first {
@@ -161,7 +162,7 @@ func (rw *readWriter) AddRule(table string, chain string, expr []expr.Any, first
 			Table:    &nftables.Table{Name: table, Family: rw.family},
 			Chain:    &nftables.Chain{Name: chain},
 			Exprs:    expr,
-			UserData: marshalUserComment(comment),
+			UserData: comment,
 		})
 		return nil
 	})
@@ -184,13 +185,12 @@ func (rw *readWriter) DeleteRule(table string, chain string, handler uint64) err
 func (rw *readWriter) AddSet(table, set string, key, value nftables.SetDatatype, comment string) error {
 	err := withOpenConn(func(conn *nftables.Conn) error {
 		return conn.AddSet(&nftables.Set{
-			Table:        &nftables.Table{Name: table, Family: rw.family},
-			Name:         set,
-			IsMap:        len(value.Name) != 0,
-			KeyType:      key,
-			DataType:     value,
-			KeyByteOrder: nil,
-			Comment:      comment,
+			Table:    &nftables.Table{Name: table, Family: rw.family},
+			Name:     set,
+			IsMap:    len(value.Name) != 0,
+			KeyType:  key,
+			DataType: value,
+			Comment:  comment,
 		}, nil)
 	})
 	return errors.Wrapf(err, "failed to add set %q in table %q", set, table)
@@ -205,7 +205,7 @@ func (rw *readWriter) DeleteSet(table, set string) error {
 		})
 		return nil
 	})
-	return errors.Wrapf(err, "failed to delete set %q in table %q", set, table)
+	return errors.Wrapf(netlink.IgnoreBusy(err), "failed to delete set %q in table %q", set, table)
 }
 
 // AddElement adds an element to a set in the specified table.
@@ -229,19 +229,20 @@ func (rw *readWriter) AddElement(table, set string, key, value []byte, comment s
 
 // DeleteElement removes an element from a set in the specified table.
 func (rw *readWriter) DeleteElement(table, set string, key, value []byte, comment string) error {
-	err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
-		return conn.SetDeleteElements(&nftables.Set{
-			Table: &nftables.Table{Name: table, Family: rw.family},
-			Name:  set,
-		}, []nftables.SetElement{
-			{
-				Key:     key,
-				Val:     value,
-				Comment: comment,
-			},
-		})
-	})
-	return errors.Wrapf(err, "failed to delete element in table %q set %q", table, set)
+	return nil
+	//err := rw.withOpenConnAndRefresh(func(conn *nftables.Conn) error {
+	//	return conn.SetDeleteElements(&nftables.Set{
+	//		Table: &nftables.Table{Name: table, Family: rw.family},
+	//		Name:  set,
+	//	}, []nftables.SetElement{
+	//		{
+	//			Key:     key,
+	//			Val:     value,
+	//			Comment: comment,
+	//		},
+	//	})
+	//})
+	//return errors.Wrapf(err, "failed to delete element in table %q set %q", table, set)
 }
 
 // withOpenConnAndRefresh performs an action with an open nftables connection

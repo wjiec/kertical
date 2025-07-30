@@ -62,3 +62,12 @@ func TestFirst(t *testing.T) {
 		assert.NotNil(t, rest)
 	})
 }
+
+func TestAnd(t *testing.T) {
+	if f := predicate.And(IsOdd, IsNegative); assert.NotNil(t, f) {
+		first, rest := predicate.First(Numbers(10), f)
+
+		assert.Zero(t, first)
+		assert.NotNil(t, rest)
+	}
+}

@@ -25,11 +25,12 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldfl
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static-debian12
 
 WORKDIR /
 COPY --from=builder /workspace/forwarding .
 
-USER 65532:65532
+# We need root user to perform nftables-related operations
+USER 0:0
 
 ENTRYPOINT ["/forwarding"]
