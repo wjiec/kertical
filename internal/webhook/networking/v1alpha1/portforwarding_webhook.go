@@ -151,6 +151,9 @@ func (v *PortForwardingCustomValidator) validatePortForwarding(portforwarding *n
 	if len(portforwarding.Spec.ServiceRef.Name) == 0 {
 		allErrors = append(allErrors, field.Required(field.NewPath("spec", "serviceRef", "name"), "must have a name"))
 	}
+	if len(portforwarding.Spec.Ports) == 0 {
+		allErrors = append(allErrors, field.Required(field.NewPath("spec", "ports"), "must have at least one port"))
+	}
 
 	if len(allErrors) != 0 {
 		return apierrors.NewInvalid(
