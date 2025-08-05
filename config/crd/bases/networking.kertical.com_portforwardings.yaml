@@ -1,0 +1,230 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: portforwardings.networking.kertical.com
+spec:
+  group: networking.kertical.com
+  names:
+    categories:
+    - kertical
+    kind: PortForwarding
+    listKind: PortForwardingList
+    plural: portforwardings
+    shortNames:
+    - kpf
+    singular: portforwarding
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.serviceRef.name
+      name: Service
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PortForwarding is the Schema for the portforwardings API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PortForwardingSpec defines the desired state of PortForwarding.
+            properties:
+              ports:
+                description: The list of ports that are exposed on the host.
+                items:
+                  description: PortForwardingPort represents the mapping between a
+                    service port and a local exposed port.
+                  properties:
+                    hostPort:
+                      description: |-
+                        HostPort is the port to expose on the host. If specified, it must be a
+                        valid port number, 0 < x < 65536.
+
+                        If not specified, it defaults to the port number specified by the target.
+                      format: int32
+                      type: integer
+                    target:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        Target is the port number or name in the referenced Service.
+
+                        If using a numbers, it must be a valid port number (0 < x < 65536), and it
+                        must be unique within the Service.
+
+                        If using a string, it must match a named port in the referenced Service.
+                      x-kubernetes-int-or-string: true
+                  required:
+                  - target
+                  type: object
+                type: array
+              serviceRef:
+                description: |-
+                  ServiceRef references the Service in the current namespace that needs
+                  port forwarding. This field is immutable.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - serviceRef
+            type: object
+          status:
+            description: PortForwardingStatus defines the observed state of PortForwarding.
+            properties:
+              conditions:
+                description: Represents the observations of a PortForwarding's current
+                  state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              nodePortForwardingStatus:
+                description: |-
+                  NodePortForwardingStatus contains the port forwarding status for each node
+                  where port forwarding has been configured
+                items:
+                  description: NodePortForwardingStatus represents the port forwarding
+                    status for a specific node
+                  properties:
+                    forwardingStatus:
+                      description: ForwardedPorts represents the current status of
+                        each port forwarding
+                      items:
+                        description: ForwardedPort represents the status of a port
+                          forwarding configuration
+                        properties:
+                          protocol:
+                            description: Protocol specifies the network protocol used
+                              for port forwarding (TCP or UDP)
+                            type: string
+                          sourcePort:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: SourcePort is the port number currently being
+                              listened on
+                            x-kubernetes-int-or-string: true
+                          state:
+                            description: State represents the current state and description
+                            type: string
+                          targetHosts:
+                            description: TargetHosts is the destination host address
+                              for the port forwarding
+                            items:
+                              type: string
+                            type: array
+                          targetPort:
+                            description: TargetPort is the port number to which we
+                              are forwarding
+                            format: int32
+                            type: integer
+                        required:
+                        - protocol
+                        - sourcePort
+                        - state
+                        - targetHosts
+                        - targetPort
+                        type: object
+                      type: array
+                    nodeName:
+                      description: NodeName is the name of the node where port forwarding
+                        is active
+                      type: string
+                  required:
+                  - nodeName
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - nodeName
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

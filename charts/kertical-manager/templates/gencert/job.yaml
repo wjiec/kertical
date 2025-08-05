@@ -28,6 +28,7 @@ spec:
             {{- if .Values.controller.metrics.secure }}
             - {{ include "kertical-manager.controller.metrics-service.name" . }}/{{ include "kertical-manager.controller.metrics-certs.name" . }}
             - {{ include "kertical-manager.webhook.metrics-service.name" . }}/{{ include "kertical-manager.webhook.metrics-certs.name" . }}
+            - {{ include "kertical-manager.forwarding.metrics-service.name" . }}/{{ include "kertical-manager.forwarding.metrics-certs.name" . }}
             {{- end }}
           imagePullPolicy: {{ .Values.gencert.image.pullPolicy }}
           {{- with .Values.gencert.securityContext }}

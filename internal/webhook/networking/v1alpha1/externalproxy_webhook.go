@@ -105,7 +105,8 @@ func (d *ExternalProxyCustomDefaulter) Default(ctx context.Context, obj runtime.
 		return err
 	}
 
-	// 如果我们通过 kubectl apply 的方式更新对象，我们应该要为实际 apply 的对象生成默认值
+	// If we update objects using kubectl apply, we should generate default values
+	// for the objects that are actually applied.
 	if admissionReq.Operation == admissionv1.Update {
 		var updateOption metav1.UpdateOptions
 		if err = d.decoder.DecodeRaw(admissionReq.Options, &updateOption); err != nil {

@@ -33,7 +33,7 @@ const (
 
 // ownerReferenceUIDIndex creates an index based on owner reference UIDs
 func ownerReferenceUIDIndex(object client.Object) []string {
-	owners := make([]string, 1) // a slices of size 1 is sufficient
+	owners := make([]string, 0, 1) // a slices of size 1 is sufficient
 	for _, owner := range object.GetOwnerReferences() {
 		owners = append(owners, string(owner.UID))
 	}

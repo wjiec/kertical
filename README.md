@@ -97,6 +97,31 @@ spec:
 ```
 More details can be found at `kubectl explain externalproxies --api-version=networking.kertical.com/v1alpha1`.
 
+#### PortForwarding
+
+PortForwarding can directly expose the configured port on the selected worker node. Unlike `nodePort` or `hostPort`,
+PortForwarding allows you to customize the port number used on the worker node and is not limited by
+Kubernetes' NodePort port number range restrictions. It can also forward data on all deployed worker nodes.
+PortForwarding can be helpful when it is inconvenient to modify the Service. As shown below:
+```yaml
+kind: PortForwarding
+apiVersion: networking.kertical.com/v1alpha1
+metadata:
+  name: kafka
+spec:
+  serviceRef:
+    name: kafka-headless
+  ports:
+    - target: tcp-client
+      hostPort: 9092
+```
+
+If you need to enable PortForwarding, you need to add the following parameter
+during installation to enable the controller:
+```bash
+--set controller.forwarding.enabled=true
+```
+
 
 ## Contributing
 
@@ -104,7 +129,11 @@ We warmly welcome your participation in the development of kertical.
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html).
+
+### Need-to-know conventions
+
+* [API Conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md)
 
 ### Prerequisites
 - go version v1.24.0+

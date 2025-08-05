@@ -14,6 +14,7 @@ global:
 controller:
   metrics:
     secure: false
+
   manager:
     replicas: 1
     # Sets the container image
@@ -126,6 +127,61 @@ controller:
       name: kertical-webhook-manager
       annotations: {}
 
+  forwarding:
+    enabled: false
+    # Sets the container image
+    #   https://kubernetes.io/docs/concepts/containers/images/
+    image:
+      repository: wjiec/kertical-forwarding
+      # This sets the pull policy for images.
+      pullPolicy: IfNotPresent
+      # Overrides the image tag whose default is the chart appVersion.
+      tag: ""
+      # This is for the secrets for pulling an image from a private repository
+      #   https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+      pullSecrets: []
+    pod:
+      # Setting Kubernetes Annotations to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+      annotations: {}
+      # Setting Kubernetes Labels to a Pod.
+      #   https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+      labels: {}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+    terminationGracePeriodSeconds: 10
+    nodeSelector: { }
+    tolerations: [ ]
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/arch
+                  operator: In
+                  values:
+                    - amd64
+                    - arm64
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                    - linux
+    serviceAccount:
+      name: kertical-forwarding
+      annotations: {}
+
 gencert:
   image:
     repository: wjiec/kertical-gencert
@@ -144,7 +200,7 @@ gencert:
       type: RuntimeDefault
     capabilities:
       drop:
-        - "ALL"
+        - ALL
   nodeSelector: {}
   tolerations: []
   affinity: {}

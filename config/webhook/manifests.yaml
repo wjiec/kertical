@@ -24,6 +24,26 @@ webhooks:
     resources:
     - externalproxies
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-networking-kertical-com-v1alpha1-portforwarding
+  failurePolicy: Fail
+  name: mutating-portforwarding-v1alpha1.kertical.com
+  rules:
+  - apiGroups:
+    - networking.kertical.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - portforwardings
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -49,4 +69,24 @@ webhooks:
     - UPDATE
     resources:
     - externalproxies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-networking-kertical-com-v1alpha1-portforwarding
+  failurePolicy: Fail
+  name: validating-portforwarding-v1alpha1.kertical.com
+  rules:
+  - apiGroups:
+    - networking.kertical.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - portforwardings
   sideEffects: None

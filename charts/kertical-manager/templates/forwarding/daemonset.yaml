@@ -1,0 +1,111 @@
+{{- if .Values.controller.forwarding.enabled }}
+{{- $imagePullSecrets := default .Values.global.imagePullSecrets .Values.controller.forwarding.image.pullSecrets -}}
+
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: {{ include "kertical-manager.fullname" . }}-forwarding
+  labels:
+    {{- include "kertical-manager.forwarding.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kertical-manager.forwarding.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kertical-manager.forwarding.labels" . | nindent 8 }}
+        {{- with .Values.controller.forwarding.pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.controller.forwarding.pod.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8}}
+      {{- end }}
+    spec:
+      {{- with $imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{ with .Values.controller.forwarding.pod.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{ end }}
+      hostNetwork: true
+      initContainers:
+        - name: sysctl
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - sysctl -w net.ipv4.ip_forward=1
+          securityContext:
+            privileged: true
+      containers:
+        - name: forwarding
+          image: {{ include "kertical-manager.forwarding.image" . }}
+          args:
+            - --metrics-bind-address=:8443
+            - --health-probe-bind-address=:8081
+            - --metrics-secure={{ .Values.controller.metrics.secure }}
+          env:
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          imagePullPolicy: {{ .Values.controller.forwarding.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          ports:
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+          {{- if .Values.controller.metrics.secure }}
+          volumeMounts:
+            - name: metrics-certs
+              mountPath: /tmp/kertical-metrics-certs
+          {{- end }}
+          {{- with .Values.controller.forwarding.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.controller.metrics.secure }}
+      volumes:
+        - name: metrics-certs
+          secret:
+            secretName: {{ include "kertical-manager.forwarding.metrics-certs.name" . }}
+      {{- end }}
+      serviceAccountName: {{ .Values.controller.forwarding.serviceAccount.name }}
+      terminationGracePeriodSeconds: {{ .Values.controller.forwarding.terminationGracePeriodSeconds }}
+      {{- with .Values.controller.forwarding.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.forwarding.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.forwarding.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
