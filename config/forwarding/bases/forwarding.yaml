@@ -64,6 +64,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: PORTFORWARDING_MODE
+              value: ""
           securityContext:
             capabilities:
               add:

@@ -129,6 +129,8 @@ controller:
 
   forwarding:
     enabled: false
+    # Specify the port forwarding working mode, currently only supports purego and nftables.
+    mode: ""
     # Sets the container image
     #   https://kubernetes.io/docs/concepts/containers/images/
     image:

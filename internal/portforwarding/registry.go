@@ -3,6 +3,8 @@ package portforwarding
 import (
 	"slices"
 
+	"github.com/pkg/errors"
+
 	"github.com/wjiec/kertical/internal/portforwarding/purego"
 )
 
@@ -27,6 +29,34 @@ type realImplement[T PortForwarding] struct {
 
 // registry holds all registered port forwarding implementations
 var registry []*realImplement[PortForwarding]
+
+// findPortForwardingImpl locates a suitable PortForwarding implementation from the registry.
+//
+// If a 'preference' is specified, it first tries to return an available implementation
+// matching the preference name. If no preferred implementation is found or is unavailable,
+// it selects the first available implementation in order of priority.
+func findPortForwardingImpl(preference, name string) (PortForwarding, error) {
+	if len(preference) != 0 {
+		for _, impl := range registry {
+			if impl.Name == preference {
+				if available, err := impl.Available(); err != nil {
+					return nil, errors.Wrapf(err, "failed to check %q is available", impl.Name)
+				} else if available {
+					return impl.New(name)
+				}
+			}
+		}
+	}
+
+	for _, impl := range registry {
+		if available, err := impl.Available(); err != nil {
+			return nil, errors.Wrapf(err, "failed to check %q is available", impl.Name)
+		} else if available {
+			return impl.New(name)
+		}
+	}
+	return nil, errors.Errorf("no underlying port forwarding is available")
+}
 
 // registerImplement adds a new port forwarding implementation to the registry
 func registerImplement[T PortForwarding](impl *realImplement[T]) {

@@ -58,6 +58,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: PORTFORWARDING_MODE
+              value: {{ .Values.controller.forwarding.mode }}
           imagePullPolicy: {{ .Values.controller.forwarding.image.pullPolicy }}
           securityContext:
             capabilities:

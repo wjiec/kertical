@@ -1,12 +1,12 @@
 package portforwarding
 
 import (
+	"os"
 	"sync"
 
 	"github.com/pkg/errors"
 	netutils "k8s.io/utils/net"
 	"k8s.io/utils/set"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/wjiec/kertical/internal/portforwarding/transport"
 )
@@ -32,23 +32,9 @@ type PortForwarding interface {
 
 // New creates a new PortForwarding implementation with safety guards.
 func New(name string) (PortForwarding, error) {
-	var underlying PortForwarding
-	for _, impl := range registry {
-		available, err := impl.Available()
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to check %q is availabled", impl.Name)
-		} else if available {
-			underlying, err = impl.New(name)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to create port forwarding")
-			}
-
-			log.Log.Info("port forwarding implementation", "implementation", impl.Name)
-			break
-		}
-	}
-	if underlying == nil {
-		return nil, errors.Errorf("no underlying port forwarding is available")
+	underlying, err := findPortForwardingImpl(os.Getenv("PORTFORWARDING_MODE"), name)
+	if err != nil {
+		return nil, err
 	}
 
 	return &guardPortForwarding{
