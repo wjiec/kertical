@@ -122,6 +122,14 @@ during installation to enable the controller:
 --set controller.forwarding.enabled=true
 ```
 
+#### Known issues
+
+If the proxy mode is not specified using `--set controller.forwarding.mode=[nftables|purego]` during
+installation, the default behavior is to prefer the `nftables` mode.
+
+If the cluster uses a CNI plugin based on `iptables` (such as the default `kindnetd`
+installed in `kind`), the `nftables` mode will disrupt communication between clusters.
+
 
 ## Contributing
 
