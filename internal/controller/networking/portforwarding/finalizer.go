@@ -59,13 +59,15 @@ func RemoveFinalizer(ctx context.Context, c client.Client, pf *networkingv1alpha
 
 		// The object is being deleted
 		if !newObject.ObjectMeta.DeletionTimestamp.IsZero() {
+			requeue = false // We need to reset the flag before checking the resource status.
+
 			if controllerutil.ContainsFinalizer(&newObject, FinalizerName) {
 				// Only remove the finalizer if all forwarded ports are cleaned up
 				// by checking if any node still has active forwarded ports
 				for _, nodeStatus := range pf.Status.NodePortForwardingStatus {
 					if len(nodeStatus.ForwardedPorts) != 0 {
 						requeue = true
-						log.FromContext(ctx).Info("")
+						log.FromContext(ctx).Info("There are still resources that have not been cleaned up")
 						return nil
 					}
 				}
