@@ -129,6 +129,11 @@ func (r *PortForwardingReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
 	var service corev1.Service
 	if err := r.Get(ctx, portforwardingutils.ServiceObjectKey(instance), &service); err != nil {
+		// When a Service is deleted, we need to clean up the
+		// forwarding rules associated with that Service.
+		if errors.IsNotFound(err) {
+			return r.removePortForwarding(ctx, instance, networkingv1alpha1.PortForwardingNoTarget)
+		}
 		return err
 	}
 
@@ -201,22 +206,31 @@ func (r *PortForwardingReconciler) syncPortForwarding(ctx context.Context, insta
 }
 
 // removePortForwarding cleans up all active port forwarding for a [networkingv1alpha1.PortForwarding] resource.
-func (r *PortForwardingReconciler) removePortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding) error {
+func (r *PortForwardingReconciler) removePortForwarding(ctx context.Context, instance *networkingv1alpha1.PortForwarding, reason ...networkingv1alpha1.PortForwardingState) error {
 	// If the current port forwarding doesn't have any configured ports, we
 	// have nothing to clean up and the resource can be deleted directly.
 	for _, nodeStatus := range instance.Status.NodePortForwardingStatus {
 		if nodeStatus.NodeName == kertical.NodeName() && len(nodeStatus.ForwardedPorts) > 0 {
+			forwardedPorts := make(portforwardingutils.ForwardedPorts, 0)
 			for _, elem := range nodeStatus.ForwardedPorts {
 				if sourcePort := uint16(elem.SourcePort.IntValue()); sourcePort > 0 {
 					err := r.forwarder.RemoveForwarding(elem.Protocol, sourcePort, elem.TargetHosts, uint16(elem.TargetPort))
 					if err != nil && !stderrors.Is(err, portforwarding.ErrPortNotForwarded) {
 						return err
 					}
+
+					if len(reason) != 0 {
+						forwardedPorts = append(forwardedPorts, networkingv1alpha1.ForwardedPort{
+							Protocol:   elem.Protocol,
+							SourcePort: elem.SourcePort,
+							State:      reason[0],
+						})
+					}
 				}
 			}
 
 			// After removing all forwarded ports on this node, update the node status
-			return r.statusUpdater.PatchNodeForwardedStatus(ctx, instance, kertical.NodeName(), portforwardingutils.ForwardedPorts{})
+			return r.statusUpdater.PatchNodeForwardedStatus(ctx, instance, kertical.NodeName(), forwardedPorts)
 		}
 	}
 
