@@ -120,6 +120,7 @@ const (
 	PortForwardingResidual PortForwardingState = "Residual"
 	PortForwardingFailed   PortForwardingState = "Failed"
 	PortForwardingUnknown  PortForwardingState = "Unknown"
+	PortForwardingNoTarget PortForwardingState = "NoTarget"
 )
 
 const (
