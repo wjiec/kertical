@@ -18,6 +18,7 @@ package networking
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"time"
 
@@ -181,19 +182,10 @@ func (r *ExternalProxyReconciler) SyncService(ctx context.Context, instance *net
 		return err
 	}
 
-	var activatedService *corev1.Service
-	// Since the name of an existing Service can't be modified, we prefer to find a matching service
-	// and update it. Otherwise, we delete the mismatched service and create a new one.
-	for _, ownedService := range ownedServices {
-		if ownedService.Name == instance.Spec.Service.Name {
-			activatedService = ownedService
-		} else {
-			r.serviceExpectation.Expect(expectations.ControllerKeyFromCtx(ctx), expectations.ActionDeletions, ownedService.Name)
-			if err = r.Delete(ctx, ownedService); err != nil {
-				r.serviceExpectation.Observe(expectations.ControllerKeyFromCtx(ctx), expectations.ActionDeletions, ownedService.Name)
-				return err
-			}
-		}
+	// Find the activated one and make others to deletion.
+	activatedService, err := syncActivatedObject(ctx, r, ownedServices, instance.Spec.Service.Name, r.serviceExpectation)
+	if err != nil {
+		return err
 	}
 
 	newService := externalproxy.NewService(instance)
@@ -221,8 +213,8 @@ func (r *ExternalProxyReconciler) SyncService(ctx context.Context, instance *net
 
 	// Update the existing activated service to match the ExternalProxy's desired state.
 	copyService := activatedService.DeepCopy()
-	copyService.Labels = newService.Labels
-	copyService.Annotations = newService.Annotations
+	maps.Copy(copyService.Labels, newService.Labels)
+	maps.Copy(copyService.Annotations, newService.Annotations)
 	copyService.Spec.Type = instance.Spec.Service.Type
 	copyService.Spec.Ports = slices.Clone(instance.Spec.Service.Ports)
 	return r.Update(ctx, copyService)
@@ -276,8 +268,8 @@ func (r *ExternalProxyReconciler) SyncEndpointSlices(ctx context.Context, instan
 			// Update the EndpointSlice only if the existing EndpointSlice differs from the desired state
 			if externalproxy.ShouldReconcileResource(instance, ownerEndpointSlices[idx]) {
 				copyEndpointSlice := ownerEndpointSlices[idx].DeepCopy()
-				copyEndpointSlice.Labels = desiredEndpointSlice.Labels
-				copyEndpointSlice.Annotations = desiredEndpointSlice.Annotations
+				maps.Copy(copyEndpointSlice.Labels, desiredEndpointSlice.Labels)
+				maps.Copy(copyEndpointSlice.Annotations, desiredEndpointSlice.Annotations)
 				copyEndpointSlice.AddressType = desiredEndpointSlice.AddressType
 				copyEndpointSlice.Endpoints = desiredEndpointSlice.Endpoints
 				copyEndpointSlice.Ports = desiredEndpointSlice.Ports
@@ -357,17 +349,9 @@ func (r *ExternalProxyReconciler) SyncIngress(ctx context.Context, instance *net
 	}
 
 	// Find the activated one and make others to deletion.
-	var activatedIngress *networkingv1.Ingress
-	for _, ingress := range ingresses {
-		if ingress.Name == instance.Spec.Ingress.Name {
-			activatedIngress = ingress
-		} else {
-			r.ingressExpectation.Expect(expectations.ControllerKeyFromCtx(ctx), expectations.ActionDeletions, ingress.Name)
-			if err = r.Delete(ctx, ingress); err != nil {
-				r.ingressExpectation.Observe(expectations.ControllerKeyFromCtx(ctx), expectations.ActionDeletions, ingress.Name)
-				return err
-			}
-		}
+	activatedIngress, err := syncActivatedObject(ctx, r, ingresses, instance.Spec.Ingress.Name, r.ingressExpectation)
+	if err != nil {
+		return err
 	}
 
 	newIngress := externalproxy.NewIngress(instance)
@@ -395,9 +379,16 @@ func (r *ExternalProxyReconciler) SyncIngress(ctx context.Context, instance *net
 
 	// Update the existing activated ingress to match the ExternalProxy's desired state.
 	copyIngress := activatedIngress.DeepCopy()
-	copyIngress.Labels = newIngress.Labels
-	copyIngress.Annotations = newIngress.Annotations
-	copyIngress.Spec = newIngress.Spec
+	maps.Copy(copyIngress.Labels, newIngress.Labels)
+	maps.Copy(copyIngress.Annotations, newIngress.Annotations)
+	copyIngress.Spec.TLS = newIngress.Spec.TLS
+	copyIngress.Spec.Rules = newIngress.Spec.Rules
+	copyIngress.Spec.DefaultBackend = newIngress.Spec.DefaultBackend
+	// If we haven't manually set the ingressClass, then we shouldn't modify this field.
+	if newIngress.Spec.IngressClassName != nil {
+		copyIngress.Spec.IngressClassName = newIngress.Spec.IngressClassName
+	}
+
 	return r.Update(ctx, copyIngress)
 }
 
@@ -471,4 +462,27 @@ func (r *ExternalProxyReconciler) endpointSliceControllerRefResolver(svcResolver
 
 		return nil
 	}
+}
+
+// syncActivatedObject keeps only the object whose name matches the desired
+// active name and deletes the rest.
+func syncActivatedObject[T client.Object](ctx context.Context, c client.Writer,
+	objects []T, name string, expectation expectations.ControllerExpectations,
+) (activated T, err error) {
+	controllerKey := expectations.ControllerKeyFromCtx(ctx)
+
+	// Since the name of an existing object can't be modified, we prefer to find a matching service
+	// and update it. Otherwise, we delete the mismatched service and create a new one.
+	for _, object := range objects {
+		if object.GetName() == name {
+			activated = object
+		} else {
+			expectation.Expect(controllerKey, expectations.ActionDeletions, object.GetName())
+			if err = c.Delete(ctx, object); err != nil {
+				expectation.Observe(controllerKey, expectations.ActionDeletions, object.GetName())
+				return
+			}
+		}
+	}
+	return
 }
